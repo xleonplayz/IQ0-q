@@ -31,8 +31,8 @@ setup(
     python_requires='>=3.8',
     install_requires=[
         'numpy>=1.20.0',
-        # SimOS will be required in future versions
-        # 'simos>=0.1.0',
+        # SimOS is optional, will be used if available
+        # If not available, a placeholder implementation will be used
     ],
     extras_require={
         'dev': [
