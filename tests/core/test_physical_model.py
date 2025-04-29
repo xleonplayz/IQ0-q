@@ -4,9 +4,11 @@ Unit tests for the PhysicalNVModel class.
 
 import unittest
 import numpy as np
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
+import threading
+import time
 
-from simos_nv_simulator.core.physical_model import PhysicalNVModel
+from simos_nv_simulator.core.physical_model import PhysicalNVModel, ODMRResult, RabiResult, T1Result
 
 
 class TestPhysicalNVModel(unittest.TestCase):
@@ -186,5 +188,135 @@ class TestPhysicalNVModel(unittest.TestCase):
         self.assertEqual(mock_lock.return_value.__exit__.call_count, 8)
 
 
+    def test_get_fluorescence(self):
+        """Test getting fluorescence counts."""
+        # Check that fluorescence returns a reasonable number
+        fluor = self.model.get_fluorescence()
+        self.assertGreater(fluor, 0.0)
+        self.assertLess(fluor, 2e6)  # Should be less than max count rate
+        
+        # Test fluorescence contrast with different spin states
+        self.model.reset_state()  # Initialize to ms=0
+        ms0_fluor = self.model.get_fluorescence()
+        
+        # Apply microwave to change state to ms=-1/+1
+        self.model.apply_microwave(self.model.config['zero_field_splitting'], 0.0, True)
+        
+        # Let the state evolve a bit
+        for _ in range(100):
+            if hasattr(self.model.nv_system, 'evolve'):
+                self.model.nv_system.evolve(self.model.dt)
+        
+        # Measure fluorescence in the new state
+        ms1_fluor = self.model.get_fluorescence()
+        
+        # Fluorescence in ms=0 should be higher than ms=±1 states
+        self.assertGreater(ms0_fluor, ms1_fluor)
+        
+    def test_simulation_loop(self):
+        """Test starting and stopping simulation loop."""
+        # Check initial state
+        self.assertFalse(self.model.is_simulating)
+        
+        # Start simulation
+        self.model.start_simulation_loop()
+        self.assertTrue(self.model.is_simulating)
+        self.assertTrue(self.model.simulation_thread.is_alive())
+        
+        # Stop simulation
+        self.model.stop_simulation_loop()
+        self.assertFalse(self.model.is_simulating)
+        
+        # Wait a bit for thread to fully stop
+        time.sleep(0.1)
+        self.assertFalse(self.model.simulation_thread.is_alive())
+        
+    def test_simulate_odmr(self):
+        """Test ODMR simulation."""
+        # Run ODMR simulation around zero-field splitting
+        zfs = self.model.config['zero_field_splitting']
+        result = self.model.simulate_odmr(zfs - 50e6, zfs + 50e6, 11, 0.01)  # Short averaging time
+        
+        # Check result type
+        self.assertIsInstance(result, ODMRResult)
+        
+        # Check that frequencies are as expected
+        self.assertEqual(len(result.frequencies), 11)
+        self.assertEqual(result.frequencies[0], zfs - 50e6)
+        self.assertEqual(result.frequencies[-1], zfs + 50e6)
+        
+        # Check that signal values are valid
+        self.assertEqual(len(result.signal), 11)
+        for s in result.signal:
+            self.assertGreaterEqual(s, 0.5)  # Normalized, shouldn't go too low
+            self.assertLessEqual(s, 1.5)  # Might be above 1 due to noise
+            
+        # Check that the result is cached
+        self.assertTrue(any('odmr_' in k for k in self.model.cached_results.keys()))
+        
+        # Check that center frequency is in a reasonable range
+        self.assertGreaterEqual(result.center_frequency, zfs - 50e6)
+        self.assertLessEqual(result.center_frequency, zfs + 50e6)
+        
+        # Check that contrast and linewidth exist
+        self.assertIsNotNone(result.contrast)
+        self.assertIsNotNone(result.linewidth)
+        
+        # Check that experiment ID is set
+        self.assertIsNotNone(result.experiment_id)
+        
+    def test_simulate_rabi(self):
+        """Test Rabi oscillation simulation."""
+        # Run Rabi simulation
+        result = self.model.simulate_rabi(1e-6, 11)  # 1 μs, 11 points
+        
+        # Check result type
+        self.assertIsInstance(result, RabiResult)
+        
+        # Check that times are as expected
+        self.assertEqual(len(result.times), 11)
+        self.assertEqual(result.times[0], 0.0)
+        self.assertEqual(result.times[-1], 1e-6)
+        
+        # Check that population values are valid
+        self.assertEqual(len(result.population), 11)
+        for p in result.population:
+            self.assertGreaterEqual(p, 0.0)
+            self.assertLessEqual(p, 1.0)
+            
+        # Check that the result is cached
+        self.assertTrue(any('rabi_' in k for k in self.model.cached_results.keys()))
+        
+        # Check that experiment ID is set
+        self.assertIsNotNone(result.experiment_id)
+        
+    def test_simulate_t1(self):
+        """Test T1 relaxation simulation."""
+        # Set a known T1 time
+        self.model.update_config({'T1': 1e-3})  # 1 ms
+        
+        # Run T1 simulation
+        result = self.model.simulate_t1(3e-3, 5)  # 3 ms, 5 points (short test)
+        
+        # Check result type
+        self.assertIsInstance(result, T1Result)
+        
+        # Check that times are as expected
+        self.assertEqual(len(result.times), 5)
+        self.assertEqual(result.times[0], 0.0)
+        self.assertEqual(result.times[-1], 3e-3)
+        
+        # Check that population values are valid
+        self.assertEqual(len(result.population), 5)
+        for p in result.population:
+            self.assertGreaterEqual(p, 0.0)
+            self.assertLessEqual(p, 1.0)
+            
+        # Check that the result is cached
+        self.assertTrue(any('t1_' in k for k in self.model.cached_results.keys()))
+        
+        # Check that experiment ID is set
+        self.assertIsNotNone(result.experiment_id)
+        
 if __name__ == '__main__':
     unittest.main()
