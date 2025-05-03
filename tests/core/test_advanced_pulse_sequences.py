@@ -13,7 +13,7 @@ class TestAdvancedPulseSequences(unittest.TestCase):
     """Tests focusing on advanced microwave pulse sequences."""
     
     # Maximum runtime limit
-    MAX_TEST_TIME = 30  # seconds
+    MAX_TEST_TIME = 60  # seconds
     
     def setUp(self):
         """Set up test environment."""

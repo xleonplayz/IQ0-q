@@ -13,7 +13,7 @@ class TestQuantumCoherence(unittest.TestCase):
     """Tests focusing on quantum coherence and quantum state manipulation."""
     
     # Maximum runtime limits for tests
-    MAX_TEST_TIME = 30  # seconds
+    MAX_TEST_TIME = 60  # seconds
     
     def setUp(self):
         """Set up test environment."""

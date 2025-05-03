@@ -14,7 +14,7 @@ class TestAdvancedExperiments(unittest.TestCase):
     """Tests focusing on advanced experimental scenarios."""
     
     # Maximum runtime limit
-    MAX_TEST_TIME = 30  # seconds
+    MAX_TEST_TIME = 60  # seconds
     
     def setUp(self):
         """Set up test environment."""

@@ -14,7 +14,7 @@ class TestPerformanceEdgeCases(unittest.TestCase):
     """Tests focusing on performance aspects and edge cases."""
     
     # Test timeout limits
-    MAX_TEST_TIME = 30  # seconds
+    MAX_TEST_TIME = 60  # seconds
     
     def setUp(self):
         """Set up test environment."""

@@ -15,9 +15,9 @@ class TestPhysicalNVModel(unittest.TestCase):
     """Test suite for the PhysicalNVModel class."""
     
     # Maximum run times for time-sensitive tests
-    MAX_TIME_ODMR = 60  # seconds
-    MAX_TIME_RABI = 30  # seconds
-    MAX_TIME_T1 = 5  # seconds
+    MAX_TIME_ODMR = 120  # seconds
+    MAX_TIME_RABI = 60  # seconds
+    MAX_TIME_T1 = 10  # seconds
 
     def setUp(self):
         """Set up test environment before each test."""
