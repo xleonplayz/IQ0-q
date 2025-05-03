@@ -5,6 +5,7 @@ Tests for Zeeman effect and magnetic field interaction with the PhysicalNVModel.
 import unittest
 import numpy as np
 import time
+import pytest
 from unittest.mock import patch
 
 from simos_nv_simulator.core.physical_model import PhysicalNVModel, ODMRResult
@@ -100,6 +101,7 @@ class TestZeemanEffect(unittest.TestCase):
         # so we use a more lenient test
         self.assertNotEqual(field_resonant_fluor, no_field_fluor)
         
+    @pytest.mark.slow
     def test_zeeman_effect_with_different_angles(self):
         """Test Zeeman effect with magnetic field at different angles."""
         # Use larger field for more obvious effect

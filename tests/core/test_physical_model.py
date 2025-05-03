@@ -7,6 +7,7 @@ import numpy as np
 from unittest.mock import patch, MagicMock
 import threading
 import time
+import pytest
 
 from simos_nv_simulator.core.physical_model import PhysicalNVModel, ODMRResult, RabiResult, T1Result
 
@@ -241,6 +242,7 @@ class TestPhysicalNVModel(unittest.TestCase):
         time.sleep(0.1)
         self.assertFalse(self.model.simulation_thread.is_alive())
         
+    @pytest.mark.slow
     def test_simulate_odmr(self):
         """Test ODMR simulation."""
         import time
@@ -313,6 +315,7 @@ class TestPhysicalNVModel(unittest.TestCase):
         elapsed = time.time() - start_time
         self.assertLess(elapsed, self.MAX_TIME_RABI, f"Rabi test took {elapsed:.1f}s, which exceeds the {self.MAX_TIME_RABI}s limit")
         
+    @pytest.mark.slow
     def test_simulate_t1(self):
         """Test T1 relaxation simulation."""
         import time

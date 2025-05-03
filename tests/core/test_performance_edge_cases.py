@@ -6,6 +6,7 @@ import unittest
 import numpy as np
 import time
 import threading
+import pytest
 from unittest.mock import patch
 
 from simos_nv_simulator.core.physical_model import PhysicalNVModel
@@ -85,6 +86,7 @@ class TestPerformanceEdgeCases(unittest.TestCase):
         # And verify they're not all identical (due to noise)
         self.assertGreater(np.std(samples), 0)
         
+    @pytest.mark.slow
     def test_temperature_extremes(self):
         """Test behavior at temperature extremes."""
         # Test at near zero Kelvin

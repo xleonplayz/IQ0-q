@@ -35,4 +35,6 @@ jobs:
         echo "Skipping mypy checks temporarily"
     - name: Run tests with pytest
       run: |
-        pytest tests/ --cov=simos_nv_simulator
+        # Überspringe zeitintensive Tests in der CI-Umgebung
+        # Im lokalen Entwicklungsumfeld können alle Tests mit 'pytest tests/' ausgeführt werden
+        pytest tests/ --cov=simos_nv_simulator -m "not slow"

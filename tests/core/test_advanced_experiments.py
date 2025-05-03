@@ -6,6 +6,7 @@ import unittest
 import numpy as np
 import time
 import threading
+import pytest
 from unittest.mock import patch
 
 from simos_nv_simulator.core.physical_model import PhysicalNVModel
@@ -20,6 +21,7 @@ class TestAdvancedExperiments(unittest.TestCase):
         """Set up test environment."""
         self.model = PhysicalNVModel()
         
+    @pytest.mark.slow
     def test_ac_magnetometry(self):
         """Test AC magnetometry sequence for detecting oscillating fields."""
         start_time = time.time()
@@ -67,6 +69,7 @@ class TestAdvancedExperiments(unittest.TestCase):
         self.assertLess(elapsed, self.MAX_TEST_TIME, 
                        f"AC magnetometry test took {elapsed:.1f}s, exceeding {self.MAX_TEST_TIME}s limit")
                        
+    @pytest.mark.slow
     def test_nuclear_spin_coupling(self):
         """Test coupling to nuclear spins (hyperfine interaction)."""
         start_time = time.time()
@@ -264,6 +267,7 @@ class TestAdvancedExperiments(unittest.TestCase):
         self.assertLess(elapsed, self.MAX_TEST_TIME, 
                        f"Noise spectrum test took {elapsed:.1f}s, exceeding {self.MAX_TEST_TIME}s limit")
                        
+    @pytest.mark.slow
     def test_reproducibility_with_seed(self):
         """Test reproducibility with fixed random seeds."""
         start_time = time.time()

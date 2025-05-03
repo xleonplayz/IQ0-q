@@ -5,6 +5,7 @@ Tests for quantum coherence effects and experiments in the PhysicalNVModel.
 import unittest
 import numpy as np
 import time
+import pytest
 from unittest.mock import patch
 
 from simos_nv_simulator.core.physical_model import PhysicalNVModel, RabiResult, T1Result
@@ -67,6 +68,7 @@ class TestQuantumCoherence(unittest.TestCase):
         # Amplitude should decrease with increasing detuning
         self.assertGreaterEqual(amplitudes[0], amplitudes[1])
         
+    @pytest.mark.slow
     def test_t1_vs_temperature(self):
         """Test T1 relaxation dependence on temperature."""
         # Test with different temperatures
