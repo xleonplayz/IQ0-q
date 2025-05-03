@@ -31,6 +31,7 @@ setup(
     python_requires='>=3.8',
     install_requires=[
         'numpy>=1.20.0',
+        'scipy>=1.7.0',  # Required for quantum state evolution
         # SimOS is optional, will be used if available
         # If not available, a placeholder implementation will be used
     ],
@@ -41,6 +42,7 @@ setup(
             'flake8>=3.9.0',
             'black>=21.5b2',
             'mypy>=0.812',
+            'types-scipy',  # Type stubs for scipy
         ],
     },
 )

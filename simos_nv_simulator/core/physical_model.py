@@ -1583,8 +1583,8 @@ class PhysicalNVModel:
                                 step = min(remaining, self.dt)
                             
                             # Evolve with this step size
-                            self.nv_system.evolve(step)
-                            remaining -= step
+                            self.nv_system.evolve(float(step))  # Explicit cast to float
+                            remaining = float(remaining - step)  # Explicit cast to float
                     else:
                         # Single step evolution
                         self.nv_system.evolve(duration)
