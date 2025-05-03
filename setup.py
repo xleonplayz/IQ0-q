@@ -41,8 +41,7 @@ setup(
             'pytest-cov>=2.12.0',
             'flake8>=3.9.0',
             'black>=21.5b2',
-            'mypy>=0.812',
-            'types-scipy',  # Type stubs for scipy
+            'mypy>=0.812'
         ],
     },
 )
