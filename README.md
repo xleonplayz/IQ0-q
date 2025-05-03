@@ -1,5 +1,7 @@
 # SimOS NV Simulator
 
+[![CI](https://github.com/xleonplayz/IQ0-q/actions/workflows/ci.yml/badge.svg)](https://github.com/xleonplayz/IQ0-q/actions/workflows/ci.yml)
+
 A realistic NV-center simulator with SimOS integration for the Qudi framework.
 
 ## Overview

@@ -892,7 +892,7 @@ class PhysicalNVModel:
                 # Sweep frequencies and measure fluorescence
                 for i, freq in enumerate(frequencies):
                     # Apply microwave at this frequency
-                    self.apply_microwave(freq, self.mw_power, True)
+                    self.apply_microwave(float(freq), self.mw_power, True)
                     
                     # Reset NV state 
                     if self.nv_system and hasattr(self.nv_system, 'ground_state'):
@@ -1080,7 +1080,7 @@ class PhysicalNVModel:
                     start_idx = min(5, num_points // 10)
                     min_idx = np.argmin(population[start_idx:]) + start_idx
                     
-                    if min_idx < len(times) - 1:
+                    if min_idx < len(times) - 1 and times[min_idx] > 0:
                         # Period = 2x first minimum time (for sine starting at max)
                         period = 2 * times[min_idx]
                         rabi_freq = 1.0 / period

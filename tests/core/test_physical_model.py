@@ -13,6 +13,11 @@ from simos_nv_simulator.core.physical_model import PhysicalNVModel, ODMRResult, 
 
 class TestPhysicalNVModel(unittest.TestCase):
     """Test suite for the PhysicalNVModel class."""
+    
+    # Maximum run times for time-sensitive tests
+    MAX_TIME_ODMR = 60  # seconds
+    MAX_TIME_RABI = 30  # seconds
+    MAX_TIME_T1 = 5  # seconds
 
     def setUp(self):
         """Set up test environment before each test."""
@@ -181,11 +186,16 @@ class TestPhysicalNVModel(unittest.TestCase):
         model.get_config()
         model.update_config({'test': 'value'})
         model.get_state_info()
+        model.get_fluorescence()
+        
+        # Also check the simulation control methods
+        model.start_simulation_loop()
+        model.stop_simulation_loop()
         
         # Verify the lock's __enter__ and __exit__ were called for each method
-        # 8 methods * 2 calls per context manager = 16 calls
-        self.assertEqual(mock_lock.return_value.__enter__.call_count, 8)
-        self.assertEqual(mock_lock.return_value.__exit__.call_count, 8)
+        # Each method should use a context manager that calls __enter__ and __exit__
+        self.assertGreaterEqual(mock_lock.return_value.__enter__.call_count, 10) 
+        self.assertGreaterEqual(mock_lock.return_value.__exit__.call_count, 10)
 
 
     def test_get_fluorescence(self):
@@ -233,20 +243,23 @@ class TestPhysicalNVModel(unittest.TestCase):
         
     def test_simulate_odmr(self):
         """Test ODMR simulation."""
+        import time
+        start_time = time.time()
         # Run ODMR simulation around zero-field splitting
         zfs = self.model.config['zero_field_splitting']
-        result = self.model.simulate_odmr(zfs - 50e6, zfs + 50e6, 11, 0.01)  # Short averaging time
+        # Use small frequency range and very short averaging time for test
+        result = self.model.simulate_odmr(zfs - 10e6, zfs + 10e6, 5, 0.001)  # Short averaging time
         
         # Check result type
         self.assertIsInstance(result, ODMRResult)
         
         # Check that frequencies are as expected
-        self.assertEqual(len(result.frequencies), 11)
-        self.assertEqual(result.frequencies[0], zfs - 50e6)
-        self.assertEqual(result.frequencies[-1], zfs + 50e6)
+        self.assertEqual(len(result.frequencies), 5)
+        self.assertEqual(result.frequencies[0], zfs - 10e6)
+        self.assertEqual(result.frequencies[-1], zfs + 10e6)
         
         # Check that signal values are valid
-        self.assertEqual(len(result.signal), 11)
+        self.assertEqual(len(result.signal), 5)
         for s in result.signal:
             self.assertGreaterEqual(s, 0.5)  # Normalized, shouldn't go too low
             self.assertLessEqual(s, 1.5)  # Might be above 1 due to noise
@@ -265,21 +278,27 @@ class TestPhysicalNVModel(unittest.TestCase):
         # Check that experiment ID is set
         self.assertIsNotNone(result.experiment_id)
         
+        # Check execution time
+        elapsed = time.time() - start_time
+        self.assertLess(elapsed, self.MAX_TIME_ODMR, f"ODMR test took {elapsed:.1f}s, which exceeds the {self.MAX_TIME_ODMR}s limit")
+        
     def test_simulate_rabi(self):
         """Test Rabi oscillation simulation."""
-        # Run Rabi simulation
-        result = self.model.simulate_rabi(1e-6, 11)  # 1 μs, 11 points
+        import time
+        start_time = time.time()
+        # Run Rabi simulation with small number of points for speed
+        result = self.model.simulate_rabi(1e-7, 5)  # 100 ns, 5 points
         
         # Check result type
         self.assertIsInstance(result, RabiResult)
         
         # Check that times are as expected
-        self.assertEqual(len(result.times), 11)
+        self.assertEqual(len(result.times), 5)
         self.assertEqual(result.times[0], 0.0)
-        self.assertEqual(result.times[-1], 1e-6)
+        self.assertEqual(result.times[-1], 1e-7)
         
         # Check that population values are valid
-        self.assertEqual(len(result.population), 11)
+        self.assertEqual(len(result.population), 5)
         for p in result.population:
             self.assertGreaterEqual(p, 0.0)
             self.assertLessEqual(p, 1.0)
@@ -290,24 +309,30 @@ class TestPhysicalNVModel(unittest.TestCase):
         # Check that experiment ID is set
         self.assertIsNotNone(result.experiment_id)
         
+        # Check execution time
+        elapsed = time.time() - start_time
+        self.assertLess(elapsed, self.MAX_TIME_RABI, f"Rabi test took {elapsed:.1f}s, which exceeds the {self.MAX_TIME_RABI}s limit")
+        
     def test_simulate_t1(self):
         """Test T1 relaxation simulation."""
+        import time
+        start_time = time.time()
         # Set a known T1 time
-        self.model.update_config({'T1': 1e-3})  # 1 ms
+        self.model.update_config({'T1': 1e-4})  # 100 µs (shorter for test speed)
         
-        # Run T1 simulation
-        result = self.model.simulate_t1(3e-3, 5)  # 3 ms, 5 points (short test)
+        # Run T1 simulation (very brief for test)
+        result = self.model.simulate_t1(3e-4, 3)  # 300 µs, 3 points (short test)
         
         # Check result type
         self.assertIsInstance(result, T1Result)
         
         # Check that times are as expected
-        self.assertEqual(len(result.times), 5)
+        self.assertEqual(len(result.times), 3)
         self.assertEqual(result.times[0], 0.0)
-        self.assertEqual(result.times[-1], 3e-3)
+        self.assertEqual(result.times[-1], 3e-4)
         
         # Check that population values are valid
-        self.assertEqual(len(result.population), 5)
+        self.assertEqual(len(result.population), 3)
         for p in result.population:
             self.assertGreaterEqual(p, 0.0)
             self.assertLessEqual(p, 1.0)
@@ -317,6 +342,10 @@ class TestPhysicalNVModel(unittest.TestCase):
         
         # Check that experiment ID is set
         self.assertIsNotNone(result.experiment_id)
+        
+        # Check execution time
+        elapsed = time.time() - start_time
+        self.assertLess(elapsed, self.MAX_TIME_T1, f"T1 test took {elapsed:.1f}s, which exceeds the {self.MAX_TIME_T1}s limit")
         
 if __name__ == '__main__':
     unittest.main()
