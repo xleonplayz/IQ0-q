@@ -124,16 +124,26 @@ class StateEvolution:
         if not self.experiment_id:
             self.experiment_id = str(uuid.uuid4())
 
-# SimOS imports
+# SimOS imports - use local repository
+import sys
+import os
+from pathlib import Path
+
+# Add the local simos repository to the Python path
+SIMOS_REPO_PATH = str(Path(__file__).parent.parent.parent / "simos_repo")
+if SIMOS_REPO_PATH not in sys.path:
+    sys.path.insert(0, SIMOS_REPO_PATH)
+
 try:
     import simos  # type: ignore
     import simos.propagation  # For time propagation
     import simos.systems.NV  # For NV-specific functions
     SIMOS_AVAILABLE = True
-    logger.info("SimOS package found. Using SimOS for quantum simulation.")
-except ImportError:
+    logger.info(f"SimOS found at {SIMOS_REPO_PATH}. Using SimOS for quantum simulation.")
+except ImportError as e:
     SIMOS_AVAILABLE = False
-    logger.warning("SimOS package not found. Using placeholder implementation.")
+    logger.error(f"SimOS not available at {SIMOS_REPO_PATH}. Error: {str(e)}")
+    logger.error(f"Python path: {sys.path}")
 
 # SimOS NV Wrapper class for integration with our API
 class SimOSNVWrapper:
@@ -615,8 +625,26 @@ class PhysicalNVModel:
         
     def _initialize_nv_system(self):
         """Initialize the quantum system for NV-center simulation."""
+        global SIMOS_AVAILABLE, simos
+        
         if not SIMOS_AVAILABLE:
-            raise ImportError("SimOS package is required but not available. Please install SimOS to use this module.")
+            # Try to import from local repo path
+            local_simos_path = str(Path(__file__).parent.parent.parent / "simos_repo")
+            logger.info(f"Attempting to use SimOS from local path: {local_simos_path}")
+            
+            if local_simos_path not in sys.path:
+                sys.path.insert(0, local_simos_path)
+                
+            # Retry import
+            try:
+                import simos  # type: ignore
+                import simos.propagation  # For time propagation
+                import simos.systems.NV  # For NV-specific functions
+                SIMOS_AVAILABLE = True
+                logger.info(f"Successfully loaded SimOS from {local_simos_path}")
+            except ImportError as e:
+                logger.error(f"Still unable to load SimOS: {str(e)}")
+                raise ImportError(f"SimOS is required but not available. Please ensure the SimOS repository is available at {local_simos_path}")
         
         self._initialize_simos()
             

@@ -1,97 +1,78 @@
-# SimOS NV Simulator
+# SIMOS NV Simulator
 
-[![CI](https://github.com/xleonplayz/IQ0-q/actions/workflows/ci.yml/badge.svg)](https://github.com/xleonplayz/IQ0-q/actions/workflows/ci.yml)
-
-A realistic NV-center simulator with SimOS integration for the Qudi framework.
+A Python simulator for Nitrogen-Vacancy (NV) centers in diamond, integrating with SimOS.
 
 ## Overview
 
-The SimOS NV Simulator provides a comprehensive simulation of NV-centers in diamond, 
-integrated with the Qudi framework for quantum experiments. It offers:
+This package provides a high-performance simulator for NV center quantum dynamics, focusing on:
 
-- Realistic quantum physics simulation using the SimOS library
-- Implementation of all relevant Qudi hardware interfaces
-- Thread-safe design for concurrent access from multiple modules
-- Configurable simulation parameters for various experimental conditions
-- Web-based configuration and monitoring interface
-
-## Features
-
-- Accurate simulation of NV-center quantum dynamics
-- Support for ODMR, Rabi oscillations, and other standard quantum experiments
-- Realistic simulation of environmental effects and noise
-- Thread-safe access from multiple Qudi hardware interfaces
-- Customizable parameters for different experimental scenarios
+1. Full quantum mechanical evolution using SimOS for accurate simulations
+2. High-level API for common quantum sensing and quantum information protocols
+3. Thread-safe operation for integration with control hardware
 
 ## Installation
 
-### Requirements
-
-- Python 3.8 or higher
-- NumPy
-
-### Installation from source
+For development:
 
 ```bash
-git clone https://github.com/xleonplayz/IQ0-q.git
-cd IQ0-q
+# Clone the repository
+git clone https://github.com/your-org/simos-nv-simulator.git
+cd simos-nv-simulator
+
+# Install in development mode
 pip install -e .
 ```
 
-For development, install the extra development dependencies:
+## Dependencies
 
-```bash
-pip install -e ".[dev]"
-```
+- Python 3.9+
+- NumPy
+- SciPy
+- SimOS (Simulation of Optically-addressable Spins)
+
+The simulator uses a local version of SimOS from the `simos_repo` directory instead of requiring the SimOS package to be installed. This approach allows for easier development and modification of both the simulator and SimOS code.
+
+### Testing Without SimOS
+
+For basic testing without a fully functional SimOS installation, the test suite includes mock implementations that allow the basic functionality tests to pass without requiring the actual quantum simulation capabilities.
 
 ## Usage
 
-The simulator provides implementations of Qudi hardware interfaces that can be configured
-in your Qudi configuration file:
+Basic usage example:
 
 ```python
-# Qudi configuration example
-hardware:
-    microwave:
-        module.Class: 'simos_nv_simulator.qudi_interfaces.microwave.MicrowaveSimulator'
-        connect:
-            port: 'localhost:5555'
-            
-    fast_counter:
-        module.Class: 'simos_nv_simulator.qudi_interfaces.fast_counter.FastCounterSimulator'
-        connect:
-            port: 'localhost:5555'
+from simos_nv_simulator.core.physical_model import PhysicalNVModel
+
+# Create NV model with default parameters
+nv = PhysicalNVModel()
+
+# Set magnetic field (in Tesla)
+nv.set_magnetic_field([0, 0, 0.005])
+
+# Apply microwave drive
+nv.apply_microwave(frequency=2.87e9, power=-20.0, on=True)
+
+# Run simulation for 1 microsecond
+nv.simulate(dt=1e-9, steps=1000)
+
+# Get fluorescence count rate
+counts = nv.get_fluorescence()
 ```
 
-## Development
+## Testing
 
-### Running Tests
-
-To run tests:
+Run the tests with:
 
 ```bash
 pytest
 ```
 
-To run with coverage:
+Or to run a specific test file:
 
 ```bash
-pytest --cov=simos_nv_simulator
-```
-
-### Code Formatting
-
-This project uses Black for code formatting:
-
-```bash
-black simos_nv_simulator tests
+pytest tests/core/test_physical_model.py
 ```
 
 ## License
 
-MIT
-
-## Acknowledgements
-
-This project builds upon the SimOS library for quantum simulation of optically
-addressable spins.
+[MIT License](LICENSE)
