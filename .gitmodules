@@ -1,0 +1,3 @@
+[submodule "simos_repo"]
+	path = simos_repo
+	url = https://github.com/spinsimulation/simos
