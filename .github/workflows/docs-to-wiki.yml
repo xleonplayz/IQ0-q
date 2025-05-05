@@ -106,9 +106,11 @@ jobs:
           if git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO_SLUG}.wiki.git" wiki-repo; then
             echo "Wiki exists and was cloned successfully"
             echo "wiki_exists=true" >> $GITHUB_OUTPUT
+            echo "true" > /tmp/wiki_exists
           else
             echo "Wiki does not exist or couldn't be cloned"
             echo "wiki_exists=false" >> $GITHUB_OUTPUT
+            echo "false" > /tmp/wiki_exists
           fi
       
       - name: Create Wiki if it doesn't exist
@@ -208,9 +210,22 @@ jobs:
             echo "No changes to commit"
           fi
       
-      - name: Upload documentation as artifact
-        uses: actions/upload-artifact@v2
-        with:
-          name: sphinx-documentation
-          path: docs/_build/
-          retention-days: 5
+      # Statt Upload-Artifact verwenden wir eine einfache Zusammenfassung
+      - name: Show documentation summary
+        run: |
+          echo "## Dokumentation erfolgreich erstellt und eingesetzt" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Die folgenden Aktionen wurden durchgeführt:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Sphinx-Dokumentation wurde generiert" >> $GITHUB_STEP_SUMMARY
+          echo "- Dokumentation wurde im Repository-Verzeichnis \`generated_docs\` gespeichert" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "/tmp/wiki_exists" ] && [ "$(cat /tmp/wiki_exists)" == "true" ]; then
+            echo "- Dokumentation wurde ins GitHub Wiki hochgeladen" >> $GITHUB_STEP_SUMMARY
+            echo "  - Du kannst das Wiki hier ansehen: https://github.com/$GITHUB_REPOSITORY/wiki" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- GitHub Wiki existiert noch nicht - bitte erstelle es manuell" >> $GITHUB_STEP_SUMMARY
+            echo "  - Gehe zu https://github.com/$GITHUB_REPOSITORY/wiki" >> $GITHUB_STEP_SUMMARY
+            echo "  - Erstelle die erste Seite" >> $GITHUB_STEP_SUMMARY
+            echo "  - Führe diesen Workflow erneut aus" >> $GITHUB_STEP_SUMMARY
+          fi
