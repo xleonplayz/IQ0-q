@@ -1,4 +1,5 @@
 # NV Center Physical Model
+*Authored by Leon Kaiser*
 
 ## Quantum Physics of NV Centers
 

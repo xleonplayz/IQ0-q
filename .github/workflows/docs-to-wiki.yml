@@ -171,6 +171,7 @@ jobs:
               with open(os.path.join(output_dir, 'Home.md'), 'w', encoding='utf-8') as f:
                   f.write("# SimOS NV Simulator Documentation\n\n")
                   f.write("Welcome to the documentation for the SimOS NV Simulator, a comprehensive quantum simulator for NV centers in diamond.\n\n")
+                  f.write("*Developed by Leon Kaiser*\n\n")
                   f.write("This documentation is automatically generated from the source code using both Doxygen and Sphinx.\n\n")
                   f.write("## Contents\n\n")
                   
@@ -214,12 +215,12 @@ jobs:
             mkdir -p wiki-repo
             cd wiki-repo
             git init
-            git config user.name "GitHub Actions"
-            git config user.email "actions@github.com"
+            git config user.name "Leon Kaiser"
+            git config user.email "leon.kaiser@example.com"
             # Create a placeholder file to commit
             echo "# SimOS NV Simulator Documentation" > Home.md
             git add Home.md
-            git commit -m "Initial wiki creation"
+            git commit -m "Initial wiki creation by Leon Kaiser"
             
             # Try to set the remote if possible
             REPO_SLUG=$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]')
@@ -235,13 +236,13 @@ jobs:
           cd wiki-repo
           
           # Configure git
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
+          git config user.name "Leon Kaiser"
+          git config user.email "leon.kaiser@example.com"
           
           # Check for changes
           if git status --porcelain | grep .; then
             git add .
-            git commit -m "Update documentation from commit ${{ github.sha }}"
+            git commit -m "Update documentation from commit ${{ github.sha }} by Leon Kaiser"
             
             # Two options for pushing:
             # 1. If wiki already exists, push directly

@@ -2,6 +2,8 @@
 
 Welcome to the SimOS NV Simulator documentation. This project provides a comprehensive quantum simulator for Nitrogen-Vacancy (NV) centers in diamond.
 
+*Developed by Leon Kaiser*
+
 ## Overview
 
 The NV center simulator implements a full quantum mechanical model of NV centers, including:
