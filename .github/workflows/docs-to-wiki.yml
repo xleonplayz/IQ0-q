@@ -133,10 +133,11 @@ jobs:
       - name: Prepare Wiki content
         if: steps.check-wiki.outputs.wiki_exists == 'true'
         run: |
-          # Kopiere Markdown-Dateien ins Wiki-Verzeichnis
-          cp -r docs/_build/markdown/* wiki-repo/
+          # Create clean wiki directory to organize pages
+          rm -rf wiki-pages
+          mkdir -p wiki-pages
           
-          # Home.md als Einstiegsseite erstellen
+          # Home.md als Einstiegsseite erstellen (direkt ins Wiki-Repo)
           cat > wiki-repo/Home.md << 'EOF'
           # SimOS NV Simulator Documentation
 
@@ -144,45 +145,449 @@ jobs:
 
           *Developed by Leon Kaiser*
 
-          ## Contents
-
-          ### Core Documentation
+          ## Core Documentation
           
-          - [Module Overview](index.html)
-          - [Physical Model](physical_model.html)
-          - [API Reference](api_reference.html)
+          - [Module Overview](Module-Overview)
+          - [Physical Model](Physical-Model)
+          - [API Reference](API-Reference)
           
-          ### Getting Started
+          ## Getting Started
           
           - [Installation & Setup](Installation-&-Setup)
           - [Quick Start Guide](Quick-Start-Guide)
           - [Configuration](Configuration)
           
-          ### Development
+          ## Development
           
           - [Contributing](Contributing)
           - [Code Style](Code-Style)
           - [Testing](Testing)
           EOF
           
-          # Pfade anpassen für Wiki-Links
-          find wiki-repo -name "*.md" -type f -print0 | xargs -0 sed -i 's/\.html)/)/g'
-          find wiki-repo -name "*.md" -type f -print0 | xargs -0 sed -i 's/\.html#/-/g'
+          # Create individual pages with proper titles
+          
+          # Module Overview page
+          cat > wiki-pages/Module-Overview.md << 'EOF'
+          # Module Overview
+
+          *Developed by Leon Kaiser*
+
+          EOF
+          cat docs/_build/markdown/index.md | tail -n +2 >> wiki-pages/Module-Overview.md
+          
+          # Physical Model page
+          cat > wiki-pages/Physical-Model.md << 'EOF'
+          # Physical Model
+
+          *Developed by Leon Kaiser*
+
+          EOF
+          cat docs/_build/markdown/physical_model.md | tail -n +2 >> wiki-pages/Physical-Model.md
+          
+          # API Reference page
+          cat > wiki-pages/API-Reference.md << 'EOF'
+          # API Reference
+
+          *Developed by Leon Kaiser*
+
+          EOF
+          cat docs/_build/markdown/api_reference.md | tail -n +2 >> wiki-pages/API-Reference.md
+          
+          # Placeholder pages for Getting Started section
+          cat > wiki-pages/Installation-\&-Setup.md << 'EOF'
+          # Installation & Setup
+
+          *Developed by Leon Kaiser*
+
+          ## Requirements
+
+          - Python 3.9 or higher
+          - NumPy
+          - SciPy
+          - Optional: SimOS package
+
+          ## Installation Steps
+
+          ```bash
+          # Clone the repository
+          git clone https://github.com/xleonplayz/IQ0-q.git
+          cd IQ0-q
+          
+          # Install in development mode
+          pip install -e .
+          ```
+
+          ## Verification
+
+          To verify your installation:
+
+          ```python
+          from simos_nv_simulator.core.physical_model import PhysicalNVModel
+          
+          # Create model instance
+          model = PhysicalNVModel()
+          print("Installation successful!")
+          ```
+          EOF
+          
+          cat > wiki-pages/Quick-Start-Guide.md << 'EOF'
+          # Quick Start Guide
+
+          *Developed by Leon Kaiser*
+          
+          This guide provides simple examples to get started with the SimOS NV Simulator.
+
+          ## Basic Simulation
+
+          ```python
+          from simos_nv_simulator.core.physical_model import PhysicalNVModel
+
+          # Create NV model with default parameters
+          nv = PhysicalNVModel()
+
+          # Set magnetic field (in Tesla)
+          nv.set_magnetic_field([0, 0, 0.005])
+
+          # Apply microwave drive
+          nv.apply_microwave(frequency=2.87e9, power=-20.0, on=True)
+
+          # Run simulation for 1 microsecond
+          nv.simulate(dt=1e-9, steps=1000)
+
+          # Get fluorescence count rate
+          counts = nv.get_fluorescence()
+          print(f"Fluorescence counts: {counts}")
+          ```
+
+          ## Running a Simple Experiment
+
+          ```python
+          from simos_nv_simulator.core.physical_model import PhysicalNVModel
+
+          # Create model
+          nv = PhysicalNVModel()
+
+          # Set up Rabi oscillation experiment
+          resonance_frequency = 2.87e9  # Hz
+          mw_powers = [-20, -15, -10, -5, 0]  # dBm
+          results = {}
+
+          # Perform experiment with different powers
+          for power in mw_powers:
+              nv.reset_state()
+              nv.apply_microwave(frequency=resonance_frequency, power=power, on=True)
+              
+              # Simulate for 1 microsecond with 100 time points
+              result = nv.simulate_state_evolution(max_time=1e-6, num_points=100)
+              
+              # Store result
+              results[power] = result.populations['ms0']
+              
+          # Plot results (requires matplotlib)
+          import matplotlib.pyplot as plt
+          
+          plt.figure(figsize=(10, 6))
+          for power, pop in results.items():
+              plt.plot(result.times * 1e9, pop, label=f"{power} dBm")
+              
+          plt.xlabel('Time (ns)')
+          plt.ylabel('ms=0 Population')
+          plt.title('Rabi Oscillations vs Microwave Power')
+          plt.legend()
+          plt.grid(True)
+          plt.show()
+          ```
+          EOF
+          
+          cat > wiki-pages/Configuration.md << 'EOF'
+          # Configuration
+
+          *Developed by Leon Kaiser*
+          
+          The simulator can be configured with various parameters to model different NV center environments.
+
+          ## Basic Configuration
+
+          ```python
+          model = PhysicalNVModel({
+              'zero_field_splitting': 2.87e9,  # Hz
+              'gyromagnetic_ratio': 28.0e9,    # Hz/T
+              'T1': 1e-3,                      # seconds
+              'T2': 1e-6,                      # seconds
+              'strain_e': 0.0,                 # Strain parameter E
+              'strain_d': 0.0,                 # Strain parameter D
+              'temperature': 298,              # Kelvin
+          })
+          ```
+
+          ## Available Configuration Parameters
+
+          | Parameter | Description | Default Value | Units |
+          |-----------|-------------|--------------|-------|
+          | `zero_field_splitting` | D term in Hamiltonian | 2.87e9 | Hz |
+          | `gyromagnetic_ratio` | Electron gyromagnetic ratio | 28.0e9 | Hz/T |
+          | `T1` | Longitudinal relaxation time | 1e-3 | seconds |
+          | `T2` | Transverse relaxation time | 1e-6 | seconds |
+          | `T2_star` | Inhomogeneous dephasing time | 0.5e-6 | seconds |
+          | `strain_e` | E strain component | 0.0 | Hz |
+          | `strain_d` | D strain component | 0.0 | Hz |
+          | `temperature` | Operating temperature | 298 | Kelvin |
+          | `excitation_saturation_power` | Laser power for saturation | 10.0 | mW |
+          | `optical_transition_time` | Time for ground to excited transitions | 10e-9 | seconds |
+          | `excited_state_lifetime` | Lifetime of excited state | 12e-9 | seconds |
+          | `fluorescence_rate_ms0` | Photon count rate for ms=0 | 250e3 | counts/s |
+          | `fluorescence_rate_ms1` | Photon count rate for ms=±1 | 150e3 | counts/s |
+          | `background_count_rate` | Background fluorescence | 10e3 | counts/s |
+          | `decoherence_model` | Model type for decoherence | "markovian" | string |
+          | `include_nitrogen_nucleus` | Include N14/N15 nucleus | False | boolean |
+          | `nitrogen_isotope` | Nitrogen isotope | 14 | integer |
+          
+          ## Advanced Configuration Examples
+
+          ### High-Fidelity NV
+
+          ```python
+          high_fidelity_nv = PhysicalNVModel({
+              'T1': 10e-3,                # 10 ms T1
+              'T2': 2e-3,                 # 2 ms T2
+              'T2_star': 5e-6,            # 5 μs T2*
+              'strain_e': 1e6,            # 1 MHz strain
+              'temperature': 10,          # 10 K (cryogenic)
+              'decoherence_model': "non-markovian"
+          })
+          ```
+
+          ### Room Temperature NV
+
+          ```python
+          room_temp_nv = PhysicalNVModel({
+              'T1': 1e-3,                 # 1 ms T1
+              'T2': 0.5e-6,               # 500 ns T2
+              'T2_star': 0.1e-6,          # 100 ns T2*
+              'temperature': 298,         # 298 K (room temperature)
+              'background_count_rate': 20e3 # Higher background counts
+          })
+          ```
+          EOF
+          
+          # Development pages
+          cat > wiki-pages/Contributing.md << 'EOF'
+          # Contributing
+
+          *Developed by Leon Kaiser*
+          
+          Thank you for your interest in contributing to the SimOS NV Simulator project. This page provides guidance on how to contribute effectively.
+
+          ## Development Setup
+
+          1. Fork the repository on GitHub
+          2. Clone your fork locally
+          3. Install development dependencies:
+             ```bash
+             pip install -e ".[dev]"
+             ```
+          4. Create a new branch for your feature or bugfix
+
+          ## Code Style
+
+          This project follows PEP 8 with some modifications:
+          - Line length limit: 100 characters
+          - Use type annotations for parameters and return values
+          - Documentation follows NumPy style
+
+          ## Testing
+
+          All new code should include appropriate tests:
+          ```bash
+          # Run all tests
+          pytest tests/
+          
+          # Run specific test file
+          pytest tests/core/test_physical_model.py
+          
+          # Run with coverage
+          pytest --cov=simos_nv_simulator tests/
+          ```
+
+          ## Pull Request Process
+
+          1. Ensure all tests pass
+          2. Update documentation as needed
+          3. Add your changes to the CHANGELOG.md file
+          4. Submit a pull request with a clear description of the changes
+          EOF
+          
+          cat > wiki-pages/Code-Style.md << 'EOF'
+          # Code Style
+
+          *Developed by Leon Kaiser*
+          
+          This project follows specific code style guidelines to maintain consistency and quality.
+
+          ## Python Style Guide
+
+          - Follow PEP 8 for general Python style
+          - Use snake_case for functions and variables
+          - Use CamelCase for classes
+          - Add docstrings to all public methods and functions
+
+          ## Naming Conventions
+
+          - Class names: `CamelCase`
+          - Function/method names: `snake_case`
+          - Constants: `UPPER_CASE`
+          - Private methods/attributes: `_prefixed_with_underscore`
+
+          ## Documentation Style
+
+          Example of properly documented function:
+
+          ```python
+          def apply_magnetic_field(self, field_vector: List[float]) -> None:
+              """
+              Apply a magnetic field to the NV center.
+              
+              Parameters
+              ----------
+              field_vector : List[float]
+                  3D vector of magnetic field in [Bx, By, Bz] format, measured in Tesla
+                  
+              Returns
+              -------
+              None
+                  
+              Examples
+              --------
+              >>> model = PhysicalNVModel()
+              >>> model.apply_magnetic_field([0, 0, 0.001])  # Apply 1 mT along z-axis
+              """
+              # Implementation...
+          ```
+
+          ## Import Structure
+
+          Organize imports in the following order:
+          1. Standard library imports
+          2. Third-party library imports
+          3. Local application imports
+
+          Example:
+          ```python
+          # Standard library
+          import os
+          import sys
+          from typing import List, Dict, Optional
+          
+          # Third-party
+          import numpy as np
+          from scipy import linalg
+          
+          # Local application
+          from simos_nv_simulator.core import utils
+          from simos_nv_simulator.config import settings
+          ```
+          EOF
+          
+          cat > wiki-pages/Testing.md << 'EOF'
+          # Testing
+
+          *Developed by Leon Kaiser*
+          
+          Testing is a critical part of maintaining code quality. This project uses pytest for testing.
+
+          ## Running Tests
+
+          ```bash
+          # Run all tests
+          pytest tests/
+          
+          # Run tests in a specific file
+          pytest tests/core/test_physical_model.py
+          
+          # Run a specific test
+          pytest tests/core/test_physical_model.py::TestPhysicalNVModel::test_zeeman_splitting
+          
+          # Run with coverage
+          pytest --cov=simos_nv_simulator tests/
+          ```
+
+          ## Test Structure
+
+          Tests are organized to match the package structure:
+          
+          ```
+          tests/
+          ├── core/
+          │   ├── test_physical_model.py
+          │   ├── test_quantum_evolution.py
+          │   └── test_zeeman_effect.py
+          ├── interfaces/
+          │   └── test_qudi_interface.py
+          └── utils/
+              └── test_helpers.py
+          ```
+
+          ## Writing Tests
+
+          All tests should:
+          - Be independent of each other
+          - Clean up any resources they create
+          - Have descriptive names that indicate what they're testing
+          - Include assertions that validate the expected behavior
+
+          Example test:
+
+          ```python
+          def test_zeeman_splitting():
+              """Test that Zeeman splitting is proportional to magnetic field."""
+              model = PhysicalNVModel()
+              
+              # Apply different magnetic fields
+              field_strengths = [0.0, 0.001, 0.002, 0.005]  # Tesla
+              splitting_values = []
+              
+              for b_field in field_strengths:
+                  # Apply field along z-axis
+                  model.apply_magnetic_field([0, 0, b_field])
+                  
+                  # Get energy levels
+                  energy = model.get_energy_levels()
+                  
+                  # Calculate splitting between ms=0 and ms=+1
+                  splitting = energy['ms_plus'] - energy['ms0']
+                  splitting_values.append(splitting)
+              
+              # Verify linear relationship with field strength
+              for i in range(1, len(field_strengths)):
+                  ratio = splitting_values[i] / splitting_values[1]
+                  expected_ratio = field_strengths[i] / field_strengths[1]
+                  assert abs(ratio - expected_ratio) < 0.01
+          ```
+          EOF
+          
+          # Copy all pages to wiki repo
+          cp wiki-pages/*.md wiki-repo/
           
           # Wiki-Sidebar erstellen
           cat > wiki-repo/_Sidebar.md << 'EOF'
           ### Documentation
           
           * [Home](Home)
-          * [Module Overview](index)
-          * [Physical Model](physical_model)
-          * [API Reference](api_reference)
+          * [Module Overview](Module-Overview)
+          * [Physical Model](Physical-Model)
+          * [API Reference](API-Reference)
           
-          ### Examples
+          ### Getting Started
           
-          * [Basic Usage](physical_model#basic-usage)
-          * [Configuration](physical_model#configuration)
-          * [Advanced Examples](physical_model#advanced-examples)
+          * [Installation & Setup](Installation-&-Setup)
+          * [Quick Start Guide](Quick-Start-Guide)
+          * [Configuration](Configuration)
+          
+          ### Development
+          
+          * [Contributing](Contributing)
+          * [Code Style](Code-Style)
+          * [Testing](Testing)
           EOF
           
           # Wiki-Footer erstellen
