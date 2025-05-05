@@ -1,5 +1,7 @@
 # SIMOS NV Simulator
 
+[![Documentation Status](https://github.com/xleonplayz/IQ0-q/actions/workflows/docs-to-wiki.yml/badge.svg)](https://github.com/xleonplayz/IQ0-q/wiki)
+
 A Python simulator for Nitrogen-Vacancy (NV) centers in diamond, integrating with SimOS.
 
 ## Overview

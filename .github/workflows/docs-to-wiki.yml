@@ -39,6 +39,12 @@ jobs:
           cd docs
           doxygen Doxyfile
           
+      - name: Build Sphinx documentation
+        run: |
+          cd docs
+          sphinx-build -b html . _build/html
+          echo "Sphinx documentation built successfully"
+          
       - name: Convert Doxygen to Markdown
         run: |
           pip install beautifulsoup4 lxml
@@ -141,22 +147,51 @@ jobs:
                           f_out.write(f_in.read())
                   print(f"Copied {md_file} to {output_path}")
               
+              # Copy Sphinx-generated HTML files and convert to markdown
+              sphinx_html_dir = 'docs/_build/html'
+              if os.path.exists(sphinx_html_dir):
+                  sphinx_files = glob.glob(os.path.join(sphinx_html_dir, '*.html'))
+                  for html_file in sphinx_files:
+                      if 'index.html' in html_file or 'search.html' in html_file:
+                          continue
+                      
+                      # Convert the HTML filename to match original MD filename if possible
+                      filename = os.path.basename(html_file).replace('.html', '.md')
+                      # Skip files that would overwrite existing ones
+                      if os.path.exists(os.path.join(output_dir, filename)):
+                          continue
+                          
+                      try:
+                          output_path = html_to_markdown(html_file, output_dir)
+                          print(f"Converted Sphinx HTML {html_file} to {output_path}")
+                      except Exception as e:
+                          print(f"Error processing Sphinx HTML {html_file}: {e}")
+              
               # Create Home.md (wiki landing page)
               with open(os.path.join(output_dir, 'Home.md'), 'w', encoding='utf-8') as f:
                   f.write("# SimOS NV Simulator Documentation\n\n")
                   f.write("Welcome to the documentation for the SimOS NV Simulator, a comprehensive quantum simulator for NV centers in diamond.\n\n")
+                  f.write("This documentation is automatically generated from the source code using both Doxygen and Sphinx.\n\n")
                   f.write("## Contents\n\n")
                   
                   # Add links to key files
                   f.write("### Core Documentation\n\n")
-                  f.write("- [Physical Model](physical_model.md)\n")
-                  f.write("- [API Reference](class_physical_n_v_model.md)\n\n")
+                  f.write("- [Physical Model](physical_model.md) - Detailed explanation of NV center physics\n")
+                  f.write("- [API Reference](api_reference.md) - Sphinx-generated API documentation\n")
+                  f.write("- [Class Reference](class_physical_n_v_model.md) - Doxygen-generated class documentation\n\n")
                   
                   f.write("### Technical Implementation\n\n")
-                  f.write("- [Quantum Hamiltonian](class_physical_n_v_model.md#_update_hamiltonian)\n")
-                  f.write("- [Decoherence Modeling](class_physical_n_v_model.md#_get_c_ops)\n")
-                  f.write("- [Adaptive Timestep Algorithm](class_physical_n_v_model.md#_get_optimal_timestep)\n")
-                  f.write("- [Error Handling](class_physical_n_v_model.md#evolve)\n")
+                  f.write("- [Quantum Hamiltonian](class_physical_n_v_model.md#_update_hamiltonian) - Full Hamiltonian implementation with strain and hyperfine effects\n")
+                  f.write("- [Decoherence Modeling](class_physical_n_v_model.md#_get_c_ops) - Lindblad collapse operators for T1/T2 processes\n")
+                  f.write("- [Adaptive Timestep Algorithm](class_physical_n_v_model.md#_get_optimal_timestep) - Efficient time evolution with error control\n")
+                  f.write("- [Error Handling](class_physical_n_v_model.md#evolve) - Robust exception handling for quantum simulations\n\n")
+                  
+                  f.write("### Physics Background\n\n")
+                  f.write("- [Zero-Field Splitting](physical_model.md#zero-field-splitting) - The D term in the NV Hamiltonian\n")
+                  f.write("- [Zeeman Effect](physical_model.md#zeeman-interaction) - Magnetic field interaction\n")
+                  f.write("- [Strain Effects](physical_model.md#strain-effects) - Crystal strain influence on energy levels\n")
+                  f.write("- [Hyperfine Coupling](physical_model.md#hyperfine-interaction) - Electron-nuclear spin interactions\n")
+                  f.write("- [Quantum Decoherence](physical_model.md#quantum-decoherence) - T1 and T2 relaxation processes\n")
           
           if __name__ == "__main__":
               main()
@@ -171,20 +206,31 @@ jobs:
           path: wiki-repo
         continue-on-error: true
       
-      - name: Create wiki repo if it doesn't exist
-        if: ${{ failure() }}
+      - name: Prepare wiki repository
         run: |
-          mkdir -p wiki-repo
-          cd wiki-repo
-          git init
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          touch Home.md
-          git add Home.md
-          git commit -m "Initial wiki creation" || true
+          # Check if wiki clone was successful
+          if [ ! -d "wiki-repo/.git" ]; then
+            echo "Wiki repository doesn't exist yet - creating it locally"
+            mkdir -p wiki-repo
+            cd wiki-repo
+            git init
+            git config user.name "GitHub Actions"
+            git config user.email "actions@github.com"
+            # Create a placeholder file to commit
+            echo "# SimOS NV Simulator Documentation" > Home.md
+            git add Home.md
+            git commit -m "Initial wiki creation"
+            
+            # Try to set the remote if possible
+            REPO_SLUG=$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]')
+            git remote add origin "https://github.com/$REPO_SLUG.wiki.git" || true
+          else
+            echo "Wiki repository cloned successfully"
+          fi
       
       - name: Copy documentation to wiki
         run: |
+          # Copy generated documentation to wiki repo
           cp -r wiki/* wiki-repo/
           cd wiki-repo
           
@@ -197,8 +243,41 @@ jobs:
             git add .
             git commit -m "Update documentation from commit ${{ github.sha }}"
             
-            # If wiki doesn't exist, we can't push yet, but catch the error
-            git push origin master || echo "Wiki might not exist yet - manually push to create it"
+            # Two options for pushing:
+            # 1. If wiki already exists, push directly
+            # 2. If wiki doesn't exist, user needs to manually initialize it via GitHub UI
+            echo "Attempting to push to wiki repository..."
+            
+            # Try pushing to both master and main branches (depending on wiki setup)
+            git push origin master || git push origin main || echo "IMPORTANT: Wiki cannot be pushed automatically. Please create the wiki first via GitHub UI."
+            
+            echo "Documentation ready for wiki. If the push failed, you might need to manually create the wiki via GitHub UI first."
           else
             echo "No changes to commit"
           fi
+          
+      - name: Create wiki initialization instructions
+        if: always()
+        run: |
+          echo "## Wiki Setup Instructions" > wiki_setup.md
+          echo "" >> wiki_setup.md
+          echo "If the documentation was not automatically pushed to the wiki, please follow these steps:" >> wiki_setup.md
+          echo "" >> wiki_setup.md
+          echo "1. Go to your repository on GitHub: https://github.com/$GITHUB_REPOSITORY" >> wiki_setup.md
+          echo "2. Click on the 'Wiki' tab" >> wiki_setup.md
+          echo "3. Click 'Create the first page'" >> wiki_setup.md
+          echo "4. Add some content (e.g., 'Initial wiki page')" >> wiki_setup.md
+          echo "5. Click 'Save Page'" >> wiki_setup.md
+          echo "6. Re-run this workflow to automatically populate the wiki with documentation" >> wiki_setup.md
+          echo "" >> wiki_setup.md
+          
+          # Upload as artifact
+          mkdir -p wiki_instructions
+          cp wiki_setup.md wiki_instructions/
+          
+      - name: Upload wiki setup instructions
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: wiki-setup-instructions
+          path: wiki_instructions
