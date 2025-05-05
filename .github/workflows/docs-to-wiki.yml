@@ -150,21 +150,27 @@ jobs:
 
           ## Core Documentation
           
-          - [Module Overview](Module-Overview)
-          - [Physical Model](Physical-Model)
-          - [API Reference](API-Reference)
+          [[Module Overview|Module-Overview]]
+          
+          [[Physical Model|Physical-Model]]
+          
+          [[API Reference|API-Reference]]
           
           ## Getting Started
           
-          - [Installation and Setup](Installation-and-Setup)
-          - [Quick Start Guide](Quick-Start-Guide)
-          - [Configuration](Configuration)
+          [[Installation and Setup|Installation-and-Setup]]
+          
+          [[Quick Start Guide|Quick-Start-Guide]]
+          
+          [[Configuration|Configuration]]
           
           ## Development
           
-          - [Contributing](Contributing)
-          - [Code Style](Code-Style)
-          - [Testing](Testing)
+          [[Contributing|Contributing]]
+          
+          [[Code Style|Code-Style]]
+          
+          [[Testing|Testing]]
           EOF
           
           # Create individual pages with proper titles
@@ -575,22 +581,22 @@ jobs:
           cat > wiki-repo/_Sidebar.md << 'EOF'
           ### Documentation
           
-          * [Home](Home)
-          * [Module Overview](Module-Overview)
-          * [Physical Model](Physical-Model)
-          * [API Reference](API-Reference)
+          * [[Home]]
+          * [[Module Overview|Module-Overview]]
+          * [[Physical Model|Physical-Model]]
+          * [[API Reference|API-Reference]]
           
           ### Getting Started
           
-          * [Installation and Setup](Installation-and-Setup)
-          * [Quick Start Guide](Quick-Start-Guide)
-          * [Configuration](Configuration)
+          * [[Installation and Setup|Installation-and-Setup]]
+          * [[Quick Start Guide|Quick-Start-Guide]]
+          * [[Configuration|Configuration]]
           
           ### Development
           
-          * [Contributing](Contributing)
-          * [Code Style](Code-Style)
-          * [Testing](Testing)
+          * [[Contributing|Contributing]]
+          * [[Code Style|Code-Style]]
+          * [[Testing|Testing]]
           EOF
           
           # Wiki-Footer erstellen
@@ -603,20 +609,65 @@ jobs:
         run: |
           cd wiki-repo
           
+          # Liste aller Wiki-Seiten erstellen (für die Verlinkung)
+          WIKI_PAGES=""
+          for page in *.md; do
+            if [[ "$page" != "_"* ]]; then  # Ignoriere Dateien die mit _ beginnen
+              PAGE_NAME=$(basename "$page" .md)
+              WIKI_PAGES="$WIKI_PAGES $PAGE_NAME"
+            fi
+          done
+          echo "Wiki pages: $WIKI_PAGES"
+          
           # Führe eine gründliche Bereinigung der Dateien durch
-          # Entferne alle versteckten Zeichen oder BOM-Marker
           for file in *.md; do
-            # Entferne BOM-Marker und andere versteckte Zeichen
-            CONTENT=$(cat "$file")
-            echo "$CONTENT" > "$file".tmp
-            mv "$file".tmp "$file"
-            # Stelle sicher, dass Datei mit einem einzigen Titel beginnt
+            if [[ "$file" == "_"* ]]; then
+              continue  # Sidebar und Footer überspringen
+            fi
+            
+            echo "Processing $file..."
+            
+            # Titel korrigieren wenn nötig
             FIRST_LINE=$(head -n 1 "$file")
             if [[ ! "$FIRST_LINE" =~ ^#\ .* ]]; then
-              echo "Fixing header in $file"
+              echo "  - Fixing header in $file"
               NAME=$(echo "$file" | sed 's/\.md$//' | sed 's/-/ /g')
-              echo -e "# $NAME\n\n$(cat "$file")" > "$file"
+              echo -e "# $NAME\n\n$(cat "$file")" > "$file".tmp
+              mv "$file".tmp "$file"
             fi
+            
+            # Links korrigieren für GitHub Wiki-Format
+            for page in $WIKI_PAGES; do
+              # Konvertiere verschiedene Link-Formate zu Wiki-Links
+              # 1. [text](page.md) -> [text](page)
+              # 2. [text](page.html) -> [text](page)
+              # 3. [text](page.html#section) -> [text](page#section)
+              display_page=$(echo "$page" | sed 's/-/ /g')
+              
+              # Verwende native GitHub Wiki-Links für bessere Navigation
+              # Format: [[Link Text|Target Page]]
+              
+              # Ersetze Links mit .md oder .html Endung
+              sed -i "s|\[\([^]]*\)\]($page\.md)|\[\[\1\|$page\]\]|g" "$file"
+              sed -i "s|\[\([^]]*\)\]($page\.html)|\[\[\1\|$page\]\]|g" "$file"
+              sed -i "s|\[\([^]]*\)\]($page)|\[\[\1\|$page\]\]|g" "$file"
+              
+              # Ersetze Links mit Ankern (#) - diese funktionieren nicht mit [[]] Format
+              # Verwende stattdessen normales Markdown-Format aber ohne Dateiendung
+              sed -i "s|\[\([^]]*\)\]($page\.md#\([^)]*\))|\[\1\]($page#\2)|g" "$file"
+              sed -i "s|\[\([^]]*\)\]($page\.html#\([^)]*\))|\[\1\]($page#\2)|g" "$file"
+            done
+            
+            # Ersetze relative Links innerhalb der Seite (#section)
+            sed -i 's|\[\([^]]*\)\](#\([^)]*\))|\[\1\](#\2)|g' "$file"
+            
+            # Entferne Markdown-TOC-Blöcke (werden in GitHub Wiki nicht richtig angezeigt)
+            sed -i '/```{contents}/,/```/d' "$file"
+            
+            # Entferne eval-rst Blöcke (werden in GitHub Wiki nicht unterstützt)
+            sed -i '/```{eval-rst}/,/```/d' "$file"
+            
+            echo "  - File $file processed"
           done
           
           echo "Files prepared for wiki. Current status:"
