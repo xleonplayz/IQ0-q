@@ -8,10 +8,20 @@ on:
       - 'docs/**'
       - 'simos_nv_simulator/**'
       - '.github/workflows/docs-to-wiki.yml'
+  workflow_dispatch:
+    inputs:
+      force_update:
+        description: 'Force update wiki'
+        required: false
+        default: 'false'
 
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout source repository
         uses: actions/checkout@v3
@@ -205,6 +215,7 @@ jobs:
         with:
           repository: ${{ github.repository }}.wiki
           path: wiki-repo
+          token: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
       
       - name: Prepare wiki repository
@@ -250,7 +261,14 @@ jobs:
             echo "Attempting to push to wiki repository..."
             
             # Try pushing to both master and main branches (depending on wiki setup)
-            git push origin master || git push origin main || echo "IMPORTANT: Wiki cannot be pushed automatically. Please create the wiki first via GitHub UI."
+            echo "Pushing to wiki repository..."
+            export GIT_TRACE=1
+            export GIT_CURL_VERBOSE=1
+            
+            # Try pushing with access token (replacing username:token as needed)
+            git push "https://x-access-token:${GITHUB_TOKEN}@github.com/$GITHUB_REPOSITORY.wiki.git" master || \
+            git push "https://x-access-token:${GITHUB_TOKEN}@github.com/$GITHUB_REPOSITORY.wiki.git" main || \
+            echo "IMPORTANT: Wiki cannot be pushed automatically. Please create the wiki first via GitHub UI."
             
             echo "Documentation ready for wiki. If the push failed, you might need to manually create the wiki via GitHub UI first."
           else
