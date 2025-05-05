@@ -261,7 +261,7 @@ jobs:
           fi
           
       - name: Upload documentation as artifact (fallback)
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v2
         with:
           name: wiki-documentation
           path: wiki/
