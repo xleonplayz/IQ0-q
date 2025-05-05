@@ -137,6 +137,9 @@ jobs:
           rm -rf wiki-pages
           mkdir -p wiki-pages
           
+          # Lösche vorhandene Wiki-Dateien, um sauberen Start zu haben
+          rm -rf wiki-repo/*.md
+          
           # Home.md als Einstiegsseite erstellen (direkt ins Wiki-Repo)
           cat > wiki-repo/Home.md << 'EOF'
           # SimOS NV Simulator Documentation
@@ -153,7 +156,7 @@ jobs:
           
           ## Getting Started
           
-          - [Installation & Setup](Installation-&-Setup)
+          - [Installation and Setup](Installation-and-Setup)
           - [Quick Start Guide](Quick-Start-Guide)
           - [Configuration](Configuration)
           
@@ -194,7 +197,7 @@ jobs:
           cat docs/_build/markdown/api_reference.md | tail -n +2 >> wiki-pages/API-Reference.md
           
           # Placeholder pages for Getting Started section
-          cat > wiki-pages/Installation-\&-Setup.md << 'EOF'
+          cat > wiki-pages/Installation-and-Setup.md << 'EOF'
           # Installation & Setup
 
           *Developed by Leon Kaiser*
@@ -579,7 +582,7 @@ jobs:
           
           ### Getting Started
           
-          * [Installation & Setup](Installation-&-Setup)
+          * [Installation and Setup](Installation-and-Setup)
           * [Quick Start Guide](Quick-Start-Guide)
           * [Configuration](Configuration)
           
@@ -600,10 +603,31 @@ jobs:
         run: |
           cd wiki-repo
           
+          # Führe eine gründliche Bereinigung der Dateien durch
+          # Entferne alle versteckten Zeichen oder BOM-Marker
+          for file in *.md; do
+            # Entferne BOM-Marker und andere versteckte Zeichen
+            CONTENT=$(cat "$file")
+            echo "$CONTENT" > "$file".tmp
+            mv "$file".tmp "$file"
+            # Stelle sicher, dass Datei mit einem einzigen Titel beginnt
+            FIRST_LINE=$(head -n 1 "$file")
+            if [[ ! "$FIRST_LINE" =~ ^#\ .* ]]; then
+              echo "Fixing header in $file"
+              NAME=$(echo "$file" | sed 's/\.md$//' | sed 's/-/ /g')
+              echo -e "# $NAME\n\n$(cat "$file")" > "$file"
+            fi
+          done
+          
+          echo "Files prepared for wiki. Current status:"
+          for file in *.md; do
+            echo "- $file: $(head -n 1 "$file")"
+          done
+          
           # Überprüfe auf Änderungen
           if git status --porcelain | grep .; then
             # Alle Änderungen hinzufügen und committen
-            git add .
+            git add *.md
             git commit -m "Update documentation from commit ${{ github.sha }} by Leon Kaiser"
             
             echo "Pushing changes to wiki repository..."
