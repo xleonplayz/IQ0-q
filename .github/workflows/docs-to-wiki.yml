@@ -1,0 +1,204 @@
+name: Publish Documentation to Wiki
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - 'simos_nv_simulator/**'
+      - '.github/workflows/docs-to-wiki.yml'
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install sphinx sphinx-rtd-theme myst-parser
+
+      - name: Install documentation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen graphviz
+
+      - name: Generate Doxygen documentation
+        run: |
+          cd docs
+          doxygen Doxyfile
+          
+      - name: Convert Doxygen to Markdown
+        run: |
+          pip install beautifulsoup4 lxml
+          cat > convert.py << 'EOF'
+          import os
+          import sys
+          from bs4 import BeautifulSoup
+          import re
+          import glob
+          
+          def html_to_markdown(html_file, output_dir):
+              with open(html_file, 'r', encoding='utf-8') as f:
+                  html_content = f.read()
+              
+              soup = BeautifulSoup(html_content, 'lxml')
+              
+              # Extract page title
+              title = soup.title.string.replace(" Source File", "").replace(" Class Reference", "")
+              
+              # Initialize markdown content
+              md_content = f"# {title}\n\n"
+              
+              # Get the main content div
+              content_div = soup.find('div', {'class': 'contents'})
+              if content_div:
+                  # Handle headings
+                  for tag in content_div.find_all(['h1', 'h2', 'h3', 'h4', 'h5']):
+                      level = int(tag.name[1])
+                      tag.replace_with(f"{'#' * level} {tag.text}\n\n")
+                  
+                  # Handle code blocks
+                  for pre in content_div.find_all('pre', {'class': 'fragment'}):
+                      language = 'python' if '.py' in html_file else ''
+                      code = pre.text.strip()
+                      pre.replace_with(f"```{language}\n{code}\n```\n\n")
+                  
+                  # Handle tables
+                  for table in content_div.find_all('table'):
+                      md_table = "| "
+                      headers = table.find_all('th')
+                      if headers:
+                          md_table += " | ".join([h.text.strip() for h in headers]) + " |\n"
+                          md_table += "| " + " | ".join(["---"] * len(headers)) + " |\n"
+                      
+                      for row in table.find_all('tr'):
+                          cells = row.find_all('td')
+                          if cells:
+                              md_table += "| " + " | ".join([c.text.strip() for c in cells]) + " |\n"
+                      
+                      table.replace_with(md_table + "\n")
+                  
+                  # Handle links
+                  for a in content_div.find_all('a'):
+                      href = a.get('href', '')
+                      if href and not href.startswith('#') and not href.startswith('http'):
+                          # Convert local .html links to .md
+                          href = href.replace('.html', '.md')
+                      a.replace_with(f"[{a.text}]({href})")
+                  
+                  # Convert remaining content
+                  md_content += content_div.text
+              
+              # Clean up the markdown
+              md_content = re.sub(r'\n{3,}', '\n\n', md_content)
+              
+              # Determine output filename
+              filename = os.path.basename(html_file).replace('.html', '.md')
+              output_path = os.path.join(output_dir, filename)
+              
+              with open(output_path, 'w', encoding='utf-8') as f:
+                  f.write(md_content)
+              
+              return output_path
+          
+          def main():
+              input_dir = 'docs_output/html'
+              output_dir = 'wiki'
+              
+              if not os.path.exists(output_dir):
+                  os.makedirs(output_dir)
+              
+              # Process all HTML files
+              html_files = glob.glob(os.path.join(input_dir, '*.html'))
+              for html_file in html_files:
+                  if 'index.html' in html_file or 'search.html' in html_file:
+                      continue
+                  try:
+                      output_path = html_to_markdown(html_file, output_dir)
+                      print(f"Converted {html_file} to {output_path}")
+                  except Exception as e:
+                      print(f"Error processing {html_file}: {e}")
+              
+              # Copy existing markdown files
+              md_files = glob.glob('docs/*.md')
+              for md_file in md_files:
+                  filename = os.path.basename(md_file)
+                  output_path = os.path.join(output_dir, filename)
+                  with open(md_file, 'r', encoding='utf-8') as f_in:
+                      with open(output_path, 'w', encoding='utf-8') as f_out:
+                          f_out.write(f_in.read())
+                  print(f"Copied {md_file} to {output_path}")
+              
+              # Create Home.md (wiki landing page)
+              with open(os.path.join(output_dir, 'Home.md'), 'w', encoding='utf-8') as f:
+                  f.write("# SimOS NV Simulator Documentation\n\n")
+                  f.write("Welcome to the documentation for the SimOS NV Simulator, a comprehensive quantum simulator for NV centers in diamond.\n\n")
+                  f.write("## Contents\n\n")
+                  
+                  # Add links to key files
+                  f.write("### Core Documentation\n\n")
+                  f.write("- [Physical Model](physical_model.md)\n")
+                  f.write("- [API Reference](class_physical_n_v_model.md)\n\n")
+                  
+                  f.write("### Technical Implementation\n\n")
+                  f.write("- [Quantum Hamiltonian](class_physical_n_v_model.md#_update_hamiltonian)\n")
+                  f.write("- [Decoherence Modeling](class_physical_n_v_model.md#_get_c_ops)\n")
+                  f.write("- [Adaptive Timestep Algorithm](class_physical_n_v_model.md#_get_optimal_timestep)\n")
+                  f.write("- [Error Handling](class_physical_n_v_model.md#evolve)\n")
+          
+          if __name__ == "__main__":
+              main()
+          EOF
+          
+          python convert.py
+          
+      - name: Clone wiki repository
+        uses: actions/checkout@v3
+        with:
+          repository: ${{ github.repository }}.wiki
+          path: wiki-repo
+        continue-on-error: true
+      
+      - name: Create wiki repo if it doesn't exist
+        if: ${{ failure() }}
+        run: |
+          mkdir -p wiki-repo
+          cd wiki-repo
+          git init
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          touch Home.md
+          git add Home.md
+          git commit -m "Initial wiki creation" || true
+      
+      - name: Copy documentation to wiki
+        run: |
+          cp -r wiki/* wiki-repo/
+          cd wiki-repo
+          
+          # Configure git
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          
+          # Check for changes
+          if git status --porcelain | grep .; then
+            git add .
+            git commit -m "Update documentation from commit ${{ github.sha }}"
+            
+            # If wiki doesn't exist, we can't push yet, but catch the error
+            git push origin master || echo "Wiki might not exist yet - manually push to create it"
+          else
+            echo "No changes to commit"
+          fi

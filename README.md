@@ -73,6 +73,43 @@ Or to run a specific test file:
 pytest tests/core/test_physical_model.py
 ```
 
+## Documentation
+
+The project documentation is available in the GitHub wiki and can be built locally:
+
+```bash
+# Install documentation dependencies
+pip install sphinx sphinx-rtd-theme myst-parser
+sudo apt-get install doxygen graphviz  # or appropriate commands for your OS
+
+# Build documentation
+cd docs
+doxygen Doxyfile
+sphinx-build -b html . _build/html
+```
+
+The documentation covers:
+- Detailed explanation of the physical model
+- API reference and usage examples
+- Code architecture and design principles
+- Mathematical foundation of quantum simulations
+
+Documentation is automatically published to the GitHub wiki when changes are pushed to the main branch.
+
+## Physical Model
+
+The simulator implements a complete quantum mechanical model of NV centers, including:
+
+- Zero-field splitting (~2.87 GHz)
+- Zeeman interaction with magnetic fields
+- Strain effects on energy levels
+- Hyperfine interaction with nitrogen nuclear spin
+- Optical cycling and spin polarization
+- Microwave driving with proper RWA
+- Quantum decoherence processes (T1, T2, T2*)
+
+For detailed information on the physical model, see the [documentation](docs/physical_model.md).
+
 ## License
 
 [MIT License](LICENSE)
