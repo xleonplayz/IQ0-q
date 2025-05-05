@@ -3,6 +3,11 @@
 
 ## Quantum Physics of NV Centers
 
+```{contents}
+:depth: 3
+:local: true
+```
+
 The Nitrogen-Vacancy (NV) center in diamond is a point defect consisting of a substitutional nitrogen atom adjacent to a vacancy in the carbon lattice. NV centers exist in different charge states, with the negatively charged state (NV-) being particularly interesting for quantum applications due to its electronic structure and optical properties.
 
 ### Electronic Structure

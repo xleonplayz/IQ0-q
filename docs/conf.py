@@ -23,8 +23,13 @@ extensions = [
     'sphinx.ext.viewcode',
     'sphinx.ext.napoleon',
     'sphinx.ext.mathjax',
-    'myst_parser'
+    'myst_parser',
+    'sphinx.ext.autosectionlabel',  # Erlaube Referenzen zu Abschnitten mit :ref:
+    'sphinx.ext.githubpages'        # Optimiere HTML für GitHub Pages
 ]
+
+# Automatische Abschnitt-Labels voranstellen
+autosectionlabel_prefix_document = True
 
 templates_path = ['_templates']
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
@@ -34,6 +39,24 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
+
+# Benutzerdefinierte CSS-Datei einbinden
+html_css_files = [
+    'custom.css',
+]
+
+# Theme-spezifische Optionen
+html_theme_options = {
+    'display_version': True,
+    'prev_next_buttons_location': 'bottom',
+    'style_external_links': True,
+    'style_nav_header_background': '#2980B9',
+    'collapse_navigation': False,
+    'sticky_navigation': True,
+    'navigation_depth': 4,
+    'includehidden': True,
+    'titles_only': False
+}
 
 # -- MyST Parser configuration -----------------------------------------------
 myst_enable_extensions = [

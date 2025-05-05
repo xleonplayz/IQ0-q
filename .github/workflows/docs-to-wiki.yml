@@ -10,7 +10,7 @@ on:
         default: 'false'
 
 jobs:
-  build-and-publish:
+  build-docs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -47,190 +47,52 @@ jobs:
           python --version
           echo "PATH=$PATH" >> $GITHUB_ENV
       
-      - name: Install dependencies
+      - name: Install Sphinx dependencies
         run: |
           # Aktiviere die Python-Umgebung
           source venv/bin/activate
           
           python -m pip install --upgrade pip
-          pip install sphinx sphinx-rtd-theme myst-parser beautifulsoup4 lxml
-
-      - name: Install documentation tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y doxygen graphviz
-
-      - name: Generate Doxygen documentation
-        run: |
-          cd docs
-          doxygen Doxyfile
-          
+          pip install sphinx sphinx-rtd-theme myst-parser sphinx-markdown-builder
+      
       - name: Build Sphinx documentation
         run: |
           # Aktiviere die Python-Umgebung
           source venv/bin/activate
           
           cd docs
+          
+          # Standard HTML-Dokumentation erstellen
           sphinx-build -b html . _build/html
+          
+          # Markdown für Wiki erstellen
+          sphinx-build -b markdown . _build/markdown
+          
           echo "Sphinx documentation built successfully"
-          
-      - name: Convert Doxygen to Markdown
+      
+      # Speichern der Dokumentation im Repository
+      - name: Store documentation in repository
         run: |
-          # Aktiviere die Python-Umgebung
-          source venv/bin/activate
+          # Verzeichnis erstellen, falls nicht vorhanden
+          mkdir -p generated_docs
           
-          cat > convert.py << 'EOF'
-          import os
-          import sys
-          from bs4 import BeautifulSoup
-          import re
-          import glob
+          # HTML-Dokumentation kopieren
+          cp -r docs/_build/html generated_docs/html
           
-          def html_to_markdown(html_file, output_dir):
-              with open(html_file, 'r', encoding='utf-8') as f:
-                  html_content = f.read()
-              
-              soup = BeautifulSoup(html_content, 'lxml')
-              
-              # Extract page title
-              title = soup.title.string.replace(" Source File", "").replace(" Class Reference", "")
-              
-              # Initialize markdown content
-              md_content = f"# {title}\n\n"
-              
-              # Get the main content div
-              content_div = soup.find('div', {'class': 'contents'})
-              if content_div:
-                  # Handle headings
-                  for tag in content_div.find_all(['h1', 'h2', 'h3', 'h4', 'h5']):
-                      level = int(tag.name[1])
-                      tag.replace_with(f"{'#' * level} {tag.text}\n\n")
-                  
-                  # Handle code blocks
-                  for pre in content_div.find_all('pre', {'class': 'fragment'}):
-                      language = 'python' if '.py' in html_file else ''
-                      code = pre.text.strip()
-                      pre.replace_with(f"```{language}\n{code}\n```\n\n")
-                  
-                  # Handle tables
-                  for table in content_div.find_all('table'):
-                      md_table = "| "
-                      headers = table.find_all('th')
-                      if headers:
-                          md_table += " | ".join([h.text.strip() for h in headers]) + " |\n"
-                          md_table += "| " + " | ".join(["---"] * len(headers)) + " |\n"
-                      
-                      for row in table.find_all('tr'):
-                          cells = row.find_all('td')
-                          if cells:
-                              md_table += "| " + " | ".join([c.text.strip() for c in cells]) + " |\n"
-                      
-                      table.replace_with(md_table + "\n")
-                  
-                  # Handle links
-                  for a in content_div.find_all('a'):
-                      href = a.get('href', '')
-                      if href and not href.startswith('#') and not href.startswith('http'):
-                          # Convert local .html links to .md
-                          href = href.replace('.html', '.md')
-                      a.replace_with(f"[{a.text}]({href})")
-                  
-                  # Convert remaining content
-                  md_content += content_div.text
-              
-              # Clean up the markdown
-              md_content = re.sub(r'\n{3,}', '\n\n', md_content)
-              
-              # Determine output filename
-              filename = os.path.basename(html_file).replace('.html', '.md')
-              output_path = os.path.join(output_dir, filename)
-              
-              with open(output_path, 'w', encoding='utf-8') as f:
-                  f.write(md_content)
-              
-              return output_path
+          # Markdown-Dokumentation kopieren
+          cp -r docs/_build/markdown generated_docs/markdown
           
-          def main():
-              input_dir = 'docs_output/html'
-              output_dir = 'wiki'
-              
-              if not os.path.exists(output_dir):
-                  os.makedirs(output_dir)
-              
-              # Process all HTML files
-              html_files = glob.glob(os.path.join(input_dir, '*.html'))
-              for html_file in html_files:
-                  if 'index.html' in html_file or 'search.html' in html_file:
-                      continue
-                  try:
-                      output_path = html_to_markdown(html_file, output_dir)
-                      print(f"Converted {html_file} to {output_path}")
-                  except Exception as e:
-                      print(f"Error processing {html_file}: {e}")
-              
-              # Copy existing markdown files
-              md_files = glob.glob('docs/*.md')
-              for md_file in md_files:
-                  filename = os.path.basename(md_file)
-                  output_path = os.path.join(output_dir, filename)
-                  with open(md_file, 'r', encoding='utf-8') as f_in:
-                      with open(output_path, 'w', encoding='utf-8') as f_out:
-                          f_out.write(f_in.read())
-                  print(f"Copied {md_file} to {output_path}")
-              
-              # Copy Sphinx-generated HTML files and convert to markdown
-              sphinx_html_dir = 'docs/_build/html'
-              if os.path.exists(sphinx_html_dir):
-                  sphinx_files = glob.glob(os.path.join(sphinx_html_dir, '*.html'))
-                  for html_file in sphinx_files:
-                      if 'index.html' in html_file or 'search.html' in html_file:
-                          continue
-                      
-                      # Convert the HTML filename to match original MD filename if possible
-                      filename = os.path.basename(html_file).replace('.html', '.md')
-                      # Skip files that would overwrite existing ones
-                      if os.path.exists(os.path.join(output_dir, filename)):
-                          continue
-                          
-                      try:
-                          output_path = html_to_markdown(html_file, output_dir)
-                          print(f"Converted Sphinx HTML {html_file} to {output_path}")
-                      except Exception as e:
-                          print(f"Error processing Sphinx HTML {html_file}: {e}")
-              
-              # Create Home.md (wiki landing page)
-              with open(os.path.join(output_dir, 'Home.md'), 'w', encoding='utf-8') as f:
-                  f.write("# SimOS NV Simulator Documentation\n\n")
-                  f.write("Welcome to the documentation for the SimOS NV Simulator, a comprehensive quantum simulator for NV centers in diamond.\n\n")
-                  f.write("*Developed by Leon Kaiser*\n\n")
-                  f.write("This documentation is automatically generated from the source code using both Doxygen and Sphinx.\n\n")
-                  f.write("## Contents\n\n")
-                  
-                  # Add links to key files
-                  f.write("### Core Documentation\n\n")
-                  f.write("- [Physical Model](physical_model.md) - Detailed explanation of NV center physics\n")
-                  f.write("- [API Reference](api_reference.md) - Sphinx-generated API documentation\n")
-                  f.write("- [Class Reference](class_physical_n_v_model.md) - Doxygen-generated class documentation\n\n")
-                  
-                  f.write("### Technical Implementation\n\n")
-                  f.write("- [Quantum Hamiltonian](class_physical_n_v_model.md#_update_hamiltonian) - Full Hamiltonian implementation with strain and hyperfine effects\n")
-                  f.write("- [Decoherence Modeling](class_physical_n_v_model.md#_get_c_ops) - Lindblad collapse operators for T1/T2 processes\n")
-                  f.write("- [Adaptive Timestep Algorithm](class_physical_n_v_model.md#_get_optimal_timestep) - Efficient time evolution with error control\n")
-                  f.write("- [Error Handling](class_physical_n_v_model.md#evolve) - Robust exception handling for quantum simulations\n\n")
-                  
-                  f.write("### Physics Background\n\n")
-                  f.write("- [Zero-Field Splitting](physical_model.md#zero-field-splitting) - The D term in the NV Hamiltonian\n")
-                  f.write("- [Zeeman Effect](physical_model.md#zeeman-interaction) - Magnetic field interaction\n")
-                  f.write("- [Strain Effects](physical_model.md#strain-effects) - Crystal strain influence on energy levels\n")
-                  f.write("- [Hyperfine Coupling](physical_model.md#hyperfine-interaction) - Electron-nuclear spin interactions\n")
-                  f.write("- [Quantum Decoherence](physical_model.md#quantum-decoherence) - T1 and T2 relaxation processes\n")
+          # Git konfigurieren
+          git config user.name "Leon Kaiser"
+          git config user.email "leon.kaiser@example.com"
           
-          if __name__ == "__main__":
-              main()
-          EOF
+          # Änderungen committen
+          git add generated_docs
+          git commit -m "Update generated documentation"
           
-          python convert.py
-          
+          # Änderungen pushen
+          git push origin $GITHUB_REF_NAME
+      
       - name: Setup Git for Wiki
         run: |
           git config --global user.name "Leon Kaiser"
@@ -265,39 +127,90 @@ jobs:
           mkdir -p wiki-repo
           exit 0
       
-      - name: Copy documentation to wiki
+      - name: Prepare Wiki content
         if: steps.check-wiki.outputs.wiki_exists == 'true'
         run: |
-          # Copy generated documentation to wiki repo
-          cp -r wiki/* wiki-repo/
+          # Kopiere Markdown-Dateien ins Wiki-Verzeichnis
+          cp -r docs/_build/markdown/* wiki-repo/
+          
+          # Home.md als Einstiegsseite erstellen
+          cat > wiki-repo/Home.md << 'EOF'
+          # SimOS NV Simulator Documentation
+
+          Welcome to the documentation for the SimOS NV Simulator, a comprehensive quantum simulator for NV centers in diamond.
+
+          *Developed by Leon Kaiser*
+
+          ## Contents
+
+          ### Core Documentation
+          
+          - [Module Overview](index.html)
+          - [Physical Model](physical_model.html)
+          - [API Reference](api_reference.html)
+          
+          ### Getting Started
+          
+          - [Installation & Setup](Installation-&-Setup)
+          - [Quick Start Guide](Quick-Start-Guide)
+          - [Configuration](Configuration)
+          
+          ### Development
+          
+          - [Contributing](Contributing)
+          - [Code Style](Code-Style)
+          - [Testing](Testing)
+          EOF
+          
+          # Pfade anpassen für Wiki-Links
+          find wiki-repo -name "*.md" -type f -print0 | xargs -0 sed -i 's/\.html)/)/g'
+          find wiki-repo -name "*.md" -type f -print0 | xargs -0 sed -i 's/\.html#/-/g'
+          
+          # Wiki-Sidebar erstellen
+          cat > wiki-repo/_Sidebar.md << 'EOF'
+          ### Documentation
+          
+          * [Home](Home)
+          * [Module Overview](index)
+          * [Physical Model](physical_model)
+          * [API Reference](api_reference)
+          
+          ### Examples
+          
+          * [Basic Usage](physical_model#basic-usage)
+          * [Configuration](physical_model#configuration)
+          * [Advanced Examples](physical_model#advanced-examples)
+          EOF
+          
+          # Wiki-Footer erstellen
+          cat > wiki-repo/_Footer.md << 'EOF'
+          *Documentation generated with Sphinx by Leon Kaiser*
+          EOF
+      
+      - name: Publish to Wiki
+        if: steps.check-wiki.outputs.wiki_exists == 'true'
+        run: |
           cd wiki-repo
           
-          # Check for changes
+          # Überprüfe auf Änderungen
           if git status --porcelain | grep .; then
+            # Alle Änderungen hinzufügen und committen
             git add .
             git commit -m "Update documentation from commit ${{ github.sha }} by Leon Kaiser"
             
-            echo "Pushing to wiki repository..."
+            echo "Pushing changes to wiki repository..."
             
-            # Wiki repos use 'master' branch by default
+            # Push zu master (Standard für Wiki-Repos)
             git push origin master
             
             echo "Documentation successfully updated in the wiki!"
           else
             echo "No changes to commit"
           fi
-          
-      # Upload documentation to workflow summary instead of using artifacts
-      - name: Add documentation to job summary
-        if: steps.check-wiki.outputs.wiki_exists == 'false'
-        run: |
-          echo "## Documentation was generated but not uploaded to wiki" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The wiki needs to be created first. Please follow these steps:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "1. Go to your repository on GitHub: https://github.com/$GITHUB_REPOSITORY" >> $GITHUB_STEP_SUMMARY
-          echo "2. Click on the 'Wiki' tab" >> $GITHUB_STEP_SUMMARY
-          echo "3. Click 'Create the first page'" >> $GITHUB_STEP_SUMMARY
-          echo "4. Add some content (e.g., 'Initial wiki page')" >> $GITHUB_STEP_SUMMARY
-          echo "5. Click 'Save Page'" >> $GITHUB_STEP_SUMMARY
-          echo "6. Then re-run this workflow" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Upload documentation as artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: sphinx-documentation
+          path: docs/_build/
+          retention-days: 5

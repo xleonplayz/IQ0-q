@@ -1,5 +1,12 @@
 # API Reference
 
+*Documented by Leon Kaiser*
+
+```{contents}
+:depth: 3
+:local: true
+```
+
 ## Core Classes
 
 ### PhysicalNVModel
