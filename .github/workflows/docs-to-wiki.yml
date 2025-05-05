@@ -1,13 +1,7 @@
 name: Publish Documentation to Wiki
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'docs/**'
-      - 'simos_nv_simulator/**'
-      - '.github/workflows/docs-to-wiki.yml'
+  # Nur manuell ausführen, nicht bei Push
   workflow_dispatch:
     inputs:
       force_update:
@@ -210,93 +204,65 @@ jobs:
           
           python convert.py
           
-      - name: Clone wiki repository
-        uses: actions/checkout@v3
-        with:
-          repository: ${{ github.repository }}.wiki
-          path: wiki-repo
-          token: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-      
-      - name: Prepare wiki repository
+      - name: Setup Git for Wiki
         run: |
-          # Check if wiki clone was successful
-          if [ ! -d "wiki-repo/.git" ]; then
-            echo "Wiki repository doesn't exist yet - creating it locally"
-            mkdir -p wiki-repo
-            cd wiki-repo
-            git init
-            git config user.name "Leon Kaiser"
-            git config user.email "leon.kaiser@example.com"
-            # Create a placeholder file to commit
-            echo "# SimOS NV Simulator Documentation" > Home.md
-            git add Home.md
-            git commit -m "Initial wiki creation by Leon Kaiser"
-            
-            # Try to set the remote if possible
-            REPO_SLUG=$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]')
-            git remote add origin "https://github.com/$REPO_SLUG.wiki.git" || true
+          git config --global user.name "Leon Kaiser"
+          git config --global user.email "leon.kaiser@example.com"
+
+      - name: Check if Wiki exists and clone it
+        id: check-wiki
+        run: |
+          # Versuche, das Wiki-Repository zu klonen
+          REPO_SLUG=$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]')
+          if git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO_SLUG}.wiki.git" wiki-repo; then
+            echo "Wiki exists and was cloned successfully"
+            echo "wiki_exists=true" >> $GITHUB_OUTPUT
           else
-            echo "Wiki repository cloned successfully"
+            echo "Wiki does not exist or couldn't be cloned"
+            echo "wiki_exists=false" >> $GITHUB_OUTPUT
           fi
       
+      - name: Create Wiki if it doesn't exist
+        if: steps.check-wiki.outputs.wiki_exists == 'false'
+        run: |
+          echo "::warning::Wiki repository doesn't exist yet. Please create the wiki manually first."
+          echo "To create the wiki:"
+          echo "1. Go to your repository on GitHub: https://github.com/$GITHUB_REPOSITORY"
+          echo "2. Click on the 'Wiki' tab"
+          echo "3. Click 'Create the first page'"
+          echo "4. Add some content (e.g., 'Initial wiki page')"
+          echo "5. Click 'Save Page'"
+          echo "6. Then re-run this workflow"
+          
+          # Create a directory for the output to avoid errors in later steps
+          mkdir -p wiki-repo
+          exit 0
+      
       - name: Copy documentation to wiki
+        if: steps.check-wiki.outputs.wiki_exists == 'true'
         run: |
           # Copy generated documentation to wiki repo
           cp -r wiki/* wiki-repo/
           cd wiki-repo
-          
-          # Configure git
-          git config user.name "Leon Kaiser"
-          git config user.email "leon.kaiser@example.com"
           
           # Check for changes
           if git status --porcelain | grep .; then
             git add .
             git commit -m "Update documentation from commit ${{ github.sha }} by Leon Kaiser"
             
-            # Two options for pushing:
-            # 1. If wiki already exists, push directly
-            # 2. If wiki doesn't exist, user needs to manually initialize it via GitHub UI
-            echo "Attempting to push to wiki repository..."
-            
-            # Try pushing to both master and main branches (depending on wiki setup)
             echo "Pushing to wiki repository..."
-            export GIT_TRACE=1
-            export GIT_CURL_VERBOSE=1
             
-            # Try pushing with access token (replacing username:token as needed)
-            git push "https://x-access-token:${GITHUB_TOKEN}@github.com/$GITHUB_REPOSITORY.wiki.git" master || \
-            git push "https://x-access-token:${GITHUB_TOKEN}@github.com/$GITHUB_REPOSITORY.wiki.git" main || \
-            echo "IMPORTANT: Wiki cannot be pushed automatically. Please create the wiki first via GitHub UI."
+            # Wiki repos use 'master' branch by default
+            git push origin master
             
-            echo "Documentation ready for wiki. If the push failed, you might need to manually create the wiki via GitHub UI first."
+            echo "Documentation successfully updated in the wiki!"
           else
             echo "No changes to commit"
           fi
           
-      - name: Create wiki initialization instructions
-        if: always()
-        run: |
-          echo "## Wiki Setup Instructions" > wiki_setup.md
-          echo "" >> wiki_setup.md
-          echo "If the documentation was not automatically pushed to the wiki, please follow these steps:" >> wiki_setup.md
-          echo "" >> wiki_setup.md
-          echo "1. Go to your repository on GitHub: https://github.com/$GITHUB_REPOSITORY" >> wiki_setup.md
-          echo "2. Click on the 'Wiki' tab" >> wiki_setup.md
-          echo "3. Click 'Create the first page'" >> wiki_setup.md
-          echo "4. Add some content (e.g., 'Initial wiki page')" >> wiki_setup.md
-          echo "5. Click 'Save Page'" >> wiki_setup.md
-          echo "6. Re-run this workflow to automatically populate the wiki with documentation" >> wiki_setup.md
-          echo "" >> wiki_setup.md
-          
-          # Upload as artifact
-          mkdir -p wiki_instructions
-          cp wiki_setup.md wiki_instructions/
-          
-      - name: Upload wiki setup instructions
+      - name: Upload documentation as artifact (fallback)
         uses: actions/upload-artifact@v3
-        if: always()
         with:
-          name: wiki-setup-instructions
-          path: wiki_instructions
+          name: wiki-documentation
+          path: wiki/
+          retention-days: 5
