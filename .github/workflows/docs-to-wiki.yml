@@ -90,8 +90,9 @@ jobs:
           git add generated_docs
           git commit -m "Update generated documentation"
           
-          # Änderungen pushen
-          git push origin $GITHUB_REF_NAME
+          # Änderungen pushen mit Token
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin $GITHUB_REF_NAME || echo "Could not push to repository - documentation is still generated locally"
       
       - name: Setup Git for Wiki
         run: |
@@ -202,7 +203,9 @@ jobs:
             
             echo "Pushing changes to wiki repository..."
             
-            # Push zu master (Standard für Wiki-Repos)
+            # Push zu master (Standard für Wiki-Repos) mit Token
+            REPO_SLUG=$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]')
+            git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO_SLUG}.wiki.git"
             git push origin master
             
             echo "Documentation successfully updated in the wiki!"
