@@ -202,7 +202,7 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
         )
         
         # Reset position of the scanner
-        for axis in [ax.name for ax in self._constraints.axes]:
+        for axis in self._constraints.axes:
             pos_constraint = self._constraints.axes[axis].position
             self._current_position[axis] = pos_constraint.default
         
@@ -251,7 +251,7 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
                 self.stop_scan()
             
             # Reset position of the scanner
-            for axis in [ax.name for ax in self._constraints.axes]:
+            for axis in self._constraints.axes:
                 pos_constraint = self._constraints.axes[axis].position
                 self._current_position[axis] = pos_constraint.default
                 
@@ -270,7 +270,7 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
         """
         # Check if settings axes are valid
         for axis in settings.axes:
-            if axis not in [ax.name for ax in self._constraints.axes]:
+            if axis not in self._constraints.axes:
                 raise ValueError(f"Invalid axis: {axis}")
                 
         # Check if settings channels are valid
