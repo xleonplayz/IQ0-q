@@ -30,6 +30,7 @@ from dataclasses import dataclass
 
 from qudi.util.mutex import RecursiveMutex
 from qudi.util.constraints import ScalarConstraint
+from qudi.core.configoption import ConfigOption
 from qudi.interface.scanning_probe_interface import (
     ScanningProbeInterface,
     ScanData,
@@ -87,27 +88,22 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
     """
 
     _threaded = True
+    
+    # Configuration options
+    _position_ranges = ConfigOption('position_ranges', default={}, missing='error')
+    _frequency_ranges = ConfigOption('frequency_ranges', default={}, missing='error')
+    _resolution_ranges = ConfigOption('resolution_ranges', default={}, missing='error')
+    _position_accuracy = ConfigOption('position_accuracy', default={}, missing='error')
+    _max_spot_number = ConfigOption('max_spot_number', default=int(80e3), missing='warn')
+    _require_square_pixels = ConfigOption('require_square_pixels', default=False, missing='warn')
+    _nv_density = ConfigOption('nv_density', default=1e15, missing='warn')
+    _back_scan_available = ConfigOption('back_scan_available', default=True, missing='warn')
+    _back_scan_frequency_configurable = ConfigOption('back_scan_frequency_configurable', default=True, missing='warn')
+    _back_scan_resolution_configurable = ConfigOption('back_scan_resolution_configurable', default=True, missing='warn')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-        # Get configuration parameters
-        config = self.get_connector_config()
         
-        # Required configuration options
-        self._position_ranges = config.get('position_ranges')
-        self._frequency_ranges = config.get('frequency_ranges')
-        self._resolution_ranges = config.get('resolution_ranges')
-        self._position_accuracy = config.get('position_accuracy')
-        
-        # Optional configuration options
-        self._max_spot_number = config.get('max_spot_number', int(80e3))
-        self._require_square_pixels = config.get('require_square_pixels', False)
-        self._nv_density = config.get('nv_density', 1e15)  # NV density in 1/m^3
-        self._back_scan_available = config.get('back_scan_available', True)
-        self._back_scan_frequency_configurable = config.get('back_scan_frequency_configurable', True)
-        self._back_scan_resolution_configurable = config.get('back_scan_resolution_configurable', True)
-
         # Scan process parameters
         self._scan_settings: Optional[ScanSettings] = None
         self._back_scan_settings: Optional[ScanSettings] = None

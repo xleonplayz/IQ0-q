@@ -28,6 +28,7 @@ from pathlib import Path
 from qudi.interface.microwave_interface import MicrowaveInterface, MicrowaveConstraints
 from qudi.util.enums import SamplingOutputMode
 from qudi.util.mutex import Mutex
+from qudi.core.configoption import ConfigOption
 
 # Import QudiFacade directly from current directory to avoid circular imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -49,19 +50,19 @@ class NVSimMicrowaveDevice(MicrowaveInterface):
         fixed_startup_time: 0.2  # seconds, time to simulate hardware startup delay
     """
 
+    # Configuration options
+    _magnetic_field = ConfigOption('magnetic_field', default=[0, 0, 0], missing='warn')
+    _temperature = ConfigOption('temperature', default=300, missing='warn')
+    _fixed_startup_time = ConfigOption('fixed_startup_time', default=0.1, missing='warn')
+    
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
         self._thread_lock = Mutex()
         self._constraints = None
         
-        # Get configuration parameters
-        config = self.get_connector_config()
-        
-        # Optional configuration parameters
-        self._magnetic_field = config.get('magnetic_field', [0, 0, 0])
-        self._temperature = config.get('temperature', 300)
-        self._startup_time = config.get('fixed_startup_time', 0.1)  # seconds
+        # Get startup time from config
+        self._startup_time = self._fixed_startup_time
         
         # Internal state variables
         self._cw_power = 0.

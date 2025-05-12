@@ -27,6 +27,7 @@ from typing import Tuple, List, Dict, Optional, Union
 
 from qudi.interface.finite_sampling_input_interface import FiniteSamplingInputInterface, FiniteSamplingInputConstraints
 from qudi.util.mutex import Mutex
+from qudi.core.configoption import ConfigOption
 
 # Import QudiFacade directly from current directory to avoid circular imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -54,23 +55,17 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
                 'Photodiode': 'V'
     """
     
+    # Configuration options
+    _simulation_mode = ConfigOption('simulation_mode', default='ODMR', missing='warn')
+    _sample_rate_limits = ConfigOption('sample_rate_limits', default=[1, 1e6], missing='warn')
+    _frame_size_limits = ConfigOption('frame_size_limits', default=[1, 1e8], missing='warn')
+    _channel_units = ConfigOption('channel_units', default={'APD counts': 'c/s', 'Photodiode': 'V'}, missing='warn')
+    
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
         self._thread_lock = Mutex()
         self._constraints = None
-        
-        # Get configuration parameters
-        config = self.get_connector_config()
-        
-        # Optional configuration parameters
-        self._simulation_mode = config.get('simulation_mode', 'ODMR')
-        self._sample_rate_limits = config.get('sample_rate_limits', [1, 1e6])
-        self._frame_size_limits = config.get('frame_size_limits', [1, 1e8])
-        self._channel_units = config.get('channel_units', {
-            'APD counts': 'c/s',
-            'Photodiode': 'V'
-        })
         
         # Internal state variables
         self._active_channels = ['APD counts']
