@@ -28,6 +28,7 @@ from typing import Tuple, List, Dict, Optional, Union
 from qudi.interface.finite_sampling_input_interface import FiniteSamplingInputInterface, FiniteSamplingInputConstraints
 from qudi.util.mutex import Mutex
 from qudi.core.configoption import ConfigOption
+from qudi.core.connector import Connector
 
 # Import QudiFacade directly from current directory to avoid circular imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -84,11 +85,8 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
             channel_units=self._channel_units
         )
         
-        # Get singleton instance of QudiFacade
-        self._qudi_facade = QudiFacade._instance
-        if self._qudi_facade is None:
-            self.log.error("QudiFacade is not initialized. Make sure it's activated first.")
-            raise RuntimeError("QudiFacade not available")
+        # Get QudiFacade from connector
+        self._qudi_facade = self.simulator()
         
         # Reset the NV simulator state
         self._qudi_facade.reset()
@@ -232,6 +230,116 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
             
             self.log.debug("Stopped buffering")
             return True
+            
+    def set_active_channels(self, channels):
+        """Set the active channels for acquisition.
+
+        @param list(str) channels: List of channel names
+        """
+        with self._thread_lock:
+            if self._is_running:
+                self.log.error("Cannot set active channels while acquisition is running")
+                return False
+            
+            # Check if all channels are valid
+            for channel in channels:
+                if channel not in self._channel_units:
+                    self.log.error(f"Invalid channel: {channel}")
+                    return False
+                    
+            self._active_channels = channels.copy()
+            return True
+            
+    def set_sample_rate(self, rate):
+        """Set the sample rate for acquisition.
+
+        @param float rate: Sample rate in Hz
+        """
+        with self._thread_lock:
+            if self._is_running:
+                self.log.error("Cannot set sample rate while acquisition is running")
+                return False
+                
+            if not self._sample_rate_limits[0] <= rate <= self._sample_rate_limits[1]:
+                self.log.error(f"Sample rate {rate} out of range: {self._sample_rate_limits}")
+                return False
+                
+            self._current_sample_rate = rate
+            return True
+            
+    def set_frame_size(self, frame_size):
+        """Set the number of samples to acquire per channel.
+
+        @param int frame_size: Number of samples
+        """
+        with self._thread_lock:
+            if self._is_running:
+                self.log.error("Cannot set frame size while acquisition is running")
+                return False
+                
+            if not self._frame_size_limits[0] <= frame_size <= self._frame_size_limits[1]:
+                self.log.error(f"Frame size {frame_size} out of range: {self._frame_size_limits}")
+                return False
+                
+            self._current_frame_size = frame_size
+            return True
+            
+    def get_samples_in_buffer(self):
+        """Get the number of samples currently in the buffer.
+
+        @return int: Number of samples
+        """
+        with self._thread_lock:
+            return self._current_frame_size if self._is_running else 0
+            
+    def start_buffered_acquisition(self):
+        """Start buffered acquisition.
+
+        @return bool: Success
+        """
+        with self._thread_lock:
+            if self._is_running:
+                self.log.warning("Acquisition already running")
+                return True
+                
+            # Create data buffer
+            self._data_buffer = np.zeros((len(self._active_channels), self._current_frame_size))
+            self._is_running = True
+            return True
+            
+    def stop_buffered_acquisition(self):
+        """Stop buffered acquisition.
+
+        @return bool: Success
+        """
+        with self._thread_lock:
+            if not self._is_running:
+                self.log.warning("Acquisition not running")
+                return True
+                
+            self._is_running = False
+            return True
+            
+    def acquire_frame(self):
+        """Acquire a single frame.
+
+        This is a blocking call that returns when the frame is acquired.
+
+        @return dict: Dictionary with keys being the channel names and values being numpy.ndarrays
+                      of shape (frame_size,).
+        """
+        with self._thread_lock:
+            # Start buffered acquisition if not already running
+            if not self._is_running:
+                self.start_buffered_acquisition()
+                
+            # Simulate acquisition by just getting the buffered data
+            data = self.get_buffered_data()
+            
+            # Stop acquisition
+            self._is_running = False
+            
+            return data
             
     def get_buffered_data(self):
         """

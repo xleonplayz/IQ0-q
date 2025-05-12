@@ -29,6 +29,7 @@ from qudi.interface.microwave_interface import MicrowaveInterface, MicrowaveCons
 from qudi.util.enums import SamplingOutputMode
 from qudi.util.mutex import Mutex
 from qudi.core.configoption import ConfigOption
+from qudi.core.connector import Connector
 
 # Import QudiFacade directly from current directory to avoid circular imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -95,11 +96,8 @@ class NVSimMicrowaveDevice(MicrowaveInterface):
         self._scan_sample_rate = 100
         self._is_scanning = False
         
-        # Get singleton instance of QudiFacade
-        self._qudi_facade = QudiFacade._instance
-        if self._qudi_facade is None:
-            self.log.error("QudiFacade is not initialized. Make sure it's activated first.")
-            raise RuntimeError("QudiFacade not available")
+        # Get QudiFacade from connector
+        self._qudi_facade = self.simulator()
         
         # Reset the NV simulator state
         self._qudi_facade.reset()

@@ -25,6 +25,7 @@ import sys
 from qudi.interface.simple_laser_interface import SimpleLaserInterface
 from qudi.interface.simple_laser_interface import LaserState, ShutterState, ControlMode
 from qudi.core.configoption import ConfigOption
+from qudi.core.connector import Connector
 from qudi.util.mutex import Mutex
 
 # Import QudiFacade directly from current directory to avoid circular imports
@@ -66,11 +67,8 @@ class NVSimLaser(SimpleLaserInterface):
 
     def on_activate(self):
         """Activate module."""
-        # Get singleton instance of QudiFacade
-        self._qudi_facade = QudiFacade._instance
-        if self._qudi_facade is None:
-            self.log.error("QudiFacade is not initialized. Make sure it's activated first.")
-            raise RuntimeError("QudiFacade not available")
+        # Get QudiFacade from connector
+        self._qudi_facade = self.simulator()
         
         self.log.info('NV Simulator Laser initialized')
 

@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from qudi.util.mutex import RecursiveMutex
 from qudi.util.constraints import ScalarConstraint
 from qudi.core.configoption import ConfigOption
+from qudi.core.connector import Connector
 from qudi.interface.scanning_probe_interface import (
     ScanningProbeInterface,
     ScanData,
@@ -59,6 +60,9 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
     """NV simulator scanning probe for confocal microscopy.
     
     Example config for copy-paste:
+    
+    # Connector declarations
+    simulator = Connector(interface='QudiFacade')
 
     nv_sim_scanner:
         module.Class: 'nv_simulator.scanning_probe.NVSimScanningProbe'
@@ -126,11 +130,8 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
 
     def on_activate(self):
         """Initialisation performed during activation of the module."""
-        # Get singleton instance of QudiFacade
-        self._qudi_facade = QudiFacade._instance
-        if self._qudi_facade is None:
-            self.log.error("QudiFacade is not initialized. Make sure it's activated first.")
-            raise RuntimeError("QudiFacade not available")
+        # Get QudiFacade from connector
+        self._qudi_facade = self.simulator()
         
         # Generate static constraints
         axes = list()
