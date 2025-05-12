@@ -56,6 +56,9 @@ class NVSimMicrowaveDevice(MicrowaveInterface):
     _temperature = ConfigOption('temperature', default=300, missing='warn')
     _fixed_startup_time = ConfigOption('fixed_startup_time', default=0.1, missing='warn')
     
+    # Connector for simulator
+    simulator = Connector(interface='MicrowaveInterface')
+    
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
