@@ -284,13 +284,22 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
             self._current_frame_size = frame_size
             return True
             
-    def get_samples_in_buffer(self):
+    def samples_in_buffer(self):
         """Get the number of samples currently in the buffer.
+        This is an abstract method required by the interface.
 
         @return int: Number of samples
         """
         with self._thread_lock:
             return self._current_frame_size if self._is_running else 0
+            
+    def get_samples_in_buffer(self):
+        """Get the number of samples currently in the buffer.
+        Legacy method for compatibility.
+
+        @return int: Number of samples
+        """
+        return self.samples_in_buffer()
             
     def start_buffered_acquisition(self):
         """Start buffered acquisition.
@@ -341,6 +350,16 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
             
             return data
             
+    def get_buffered_samples(self):
+        """
+        Get the most recently acquired samples.
+        This is an abstract method required by the interface.
+        
+        @return dict: Dictionary with keys being the channel names and values being numpy.ndarrays
+                      of shape (frame_size,).
+        """
+        return self.get_buffered_data()
+        
     def get_buffered_data(self):
         """
         Return most recently acquired data.

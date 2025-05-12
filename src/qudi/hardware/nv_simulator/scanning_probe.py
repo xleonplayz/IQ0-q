@@ -61,36 +61,28 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
     
     Example config for copy-paste:
     
-    # Connector declarations
-    simulator = Connector(interface='QudiFacade')
-
     nv_sim_scanner:
         module.Class: 'nv_simulator.scanning_probe.NVSimScanningProbe'
         options:
             position_ranges:
-                x: [0, 200e-6]
-                y: [0, 200e-6]
-                z: [-100e-6, 100e-6]
+                x: [0, 100e-6]
+                y: [0, 100e-6]
+                z: [-50e-6, 50e-6]
             frequency_ranges:
-                x: [1, 5000]
-                y: [1, 5000]
-                z: [1, 1000]
+                x: [1, 1000]
+                y: [1, 1000]
+                z: [1, 500]
             resolution_ranges:
-                x: [1, 10000]
-                y: [1, 10000]
-                z: [2, 1000]
+                x: [1, 1000]
+                y: [1, 1000]
+                z: [2, 500]
             position_accuracy:
                 x: 10e-9
                 y: 10e-9
                 z: 50e-9
-            # max_spot_number: 80e3 # optional
-            # require_square_pixels: False # optional
-            # nv_density: 1e15 # optional, NV density in 1/m^3
-            # back_scan_available: True # optional
-            # back_scan_frequency_configurable: True # optional
-            # back_scan_resolution_configurable: True # optional
+            nv_density: 1e15  # NV density in 1/m^3
     """
-
+    
     _threaded = True
     
     # Configuration options
@@ -104,6 +96,9 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
     _back_scan_available = ConfigOption('back_scan_available', default=True, missing='warn')
     _back_scan_frequency_configurable = ConfigOption('back_scan_frequency_configurable', default=True, missing='warn')
     _back_scan_resolution_configurable = ConfigOption('back_scan_resolution_configurable', default=True, missing='warn')
+    
+    # Connector declarations
+    simulator = Connector(interface='QudiFacade')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -137,505 +132,465 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
         axes = list()
         for axis, ax_range in self._position_ranges.items():
             dist = max(ax_range) - min(ax_range)
-            resolution_range = tuple(self._resolution_ranges[axis])
-            res_default = min(resolution_range[1], 100)
-            frequency_range = tuple(self._frequency_ranges[axis])
-            f_default = min(frequency_range[1], 1e3)
-
-            position = ScalarConstraint(default=min(ax_range), bounds=tuple(ax_range))
-            resolution = ScalarConstraint(default=res_default, bounds=resolution_range, enforce_int=True)
-            frequency = ScalarConstraint(default=f_default, bounds=frequency_range)
-            step = ScalarConstraint(default=0, bounds=(0, dist))
-            spot_number = ScalarConstraint(default=self._max_spot_number, bounds=(0, self._max_spot_number))
-            axes.append(
-                ScannerAxis(
-                    name=axis, unit='m', position=position, step=step, resolution=resolution, frequency=frequency
-                )
+            freq_range = tuple(self._frequency_ranges.get(axis, (0.1, 1.0)))
+            resolution_range = tuple(self._resolution_ranges.get(axis, (2, 10000)))
+            pos_accuracy = float(self._position_accuracy.get(axis, 1e-9))
+            scanner_axis = ScannerAxis(
+                name=axis,
+                unit='m',
+                value_range=tuple(ax_range),
+                step_size=pos_accuracy,
+                resolution_range=resolution_range,
+                frequency_range=freq_range
             )
-        channels = [
-            ScannerChannel(name='fluorescence', unit='c/s', dtype='float64'),
-            ScannerChannel(name='APD events', unit='count', dtype='float64'),
-        ]
-
-        if not self._back_scan_available:
-            back_scan_capability = BackScanCapability(0)
-        else:
-            back_scan_capability = BackScanCapability.AVAILABLE
-            if self._back_scan_resolution_configurable:
-                back_scan_capability = back_scan_capability | BackScanCapability.RESOLUTION_CONFIGURABLE
-            if self._back_scan_frequency_configurable:
-                back_scan_capability = back_scan_capability | BackScanCapability.FREQUENCY_CONFIGURABLE
-                
+            axes.append(scanner_axis)
+        
+        # Spot number constraint is the maximum number of spots to scan
+        spot_number_constraint = ScalarConstraint(
+            min=1,
+            max=self._max_spot_number,
+            step=1,
+            default=self._max_spot_number // 2
+        )
+        
+        # Create basic constraints object
         self._constraints = NVSimScanConstraints(
-            axis_objects=tuple(axes),
-            channel_objects=tuple(channels),
-            back_scan_capability=back_scan_capability,
-            has_position_feedback=False,
-            square_px_only=False,
-            spot_number=spot_number,
-        )
-
-        # Set default process values
-        self._current_position = {ax.name: np.mean(ax.position.bounds) for ax in self.constraints.axes.values()}
-        self._scan_data = None
-        self._back_scan_data = None
-
-        # Initialize the scan timer
-        self._scan_start_time = 0
-        self._last_forward_pixel = 0
-        self._last_backward_pixel = 0
-        self._update_timer = QtCore.QTimer()
-        self._update_timer.setSingleShot(True)
-        self._update_timer.timeout.connect(self._handle_timer, QtCore.Qt.QueuedConnection)
-        
-        # Set the initial position of the confocal simulator
-        self._qudi_facade.confocal_simulator.set_position(
-            self._current_position.get('x', 0),
-            self._current_position.get('y', 0),
-            self._current_position.get('z', 0)
+            axes=tuple(axes),
+            channels=tuple(ScannerChannel(name='NV Fluorescence', unit='c/s'),),
+            backscan_configurable=BackScanCapability(
+                frequency=self._back_scan_frequency_configurable,
+                resolution=self._back_scan_resolution_configurable,
+                available=self._back_scan_available
+            ),
+            linear_only=False,
+            requires_square_pixels=self._require_square_pixels,
+            max_history_length=10,
+            spot_number=spot_number_constraint
         )
         
-        self.log.info('NV Simulator Scanning Probe initialized')
+        # Reset position of the scanner
+        for axis in [ax.name for ax in self._constraints.axes]:
+            pos_range = self._constraints.axes_by_name[axis].value_range
+            self._current_position[axis] = (pos_range[0] + pos_range[1]) / 2
+        
+        # Initialize simulated diamond with random NV centers
+        volume = np.prod([(max(ax_range) - min(ax_range)) for ax_range in self._position_ranges.values()])
+        n_nv = int(volume * self._nv_density)  # Number of NV centers in volume
+        self._simulated_diamond = self._generate_nv_positions(n_nv)
+        
+        self.log.info('NV Simulator Scanner initiated')
 
     def on_deactivate(self):
-        """Deactivate the scanning probe module."""
-        self.reset()
-        try:
+        """Cleanup performed during deactivation of the module."""
+        if self.module_state() != 'idle':
+            self.stop_scan()
+            
+        if self._update_timer is not None and self._update_timer.isActive():
             self._update_timer.stop()
-        except:
-            pass
-        self._update_timer.timeout.disconnect()
-
-    @property
-    def scan_settings(self) -> Optional[ScanSettings]:
-        """Property returning all parameters needed for a 1D or 2D scan. Returns None if not configured."""
-        with self._thread_lock:
-            return self._scan_settings
-
-    @property
-    def back_scan_settings(self) -> Optional[ScanSettings]:
-        """Property returning all parameters needed for the backward scan. Returns None if not configured."""
-        with self._thread_lock:
-            return self._back_scan_settings
-
-    def reset(self):
-        """Hard reset of the hardware."""
-        with self._thread_lock:
-            if self.module_state() == 'locked':
-                self.module_state.unlock()
-            self.log.debug('NV simulator scanning probe has been reset.')
-
-    @property
-    def constraints(self) -> ScanConstraints:
-        """Read-only property returning the constraints of this scanning probe hardware."""
+            
+        # Reset internal data
+        self._scan_data = None
+        self._back_scan_data = None
+        self._scan_settings = None
+        self._back_scan_settings = None
+        self._simulated_diamond = None
+        
+    def get_constraints(self):
+        """Get hardware constraints/limitations.
+        
+        @return ScanConstraints: Scanner constraints object
+        """
         return self._constraints
-
-    def configure_scan(self, settings: ScanSettings) -> None:
-        """
-        Configure the hardware with all parameters required for a 1D or 2D scan.
-
-        Raises an exception if the provided settings are invalid or do not comply with hardware constraints.
-
-        Parameters
-        ----------
-        settings : ScanSettings
-            An instance of `ScanSettings` containing all necessary scan parameters.
-
-        Raises
-        ------
-        ValueError
-            If the settings are invalid or incompatible with hardware constraints.
-        """
+        
+    def reset(self):
+        """Reset the hardware settings to the default state."""
         with self._thread_lock:
-            self.log.debug('NV simulator scanning probe "configure_scan" called.')
-            # Sanity checking
+            # Stop any running scans
             if self.module_state() != 'idle':
-                raise RuntimeError(
-                    'Unable to configure scan parameters while scan is running. ' 'Stop scanning and try again.'
-                )
-
-            # check settings - will raise appropriate exceptions if something is not right
-            self.constraints.check_settings(settings)
-
-            self._scan_settings = settings
-            # reset back scan configuration
+                self.stop_scan()
+            
+            # Reset position of the scanner
+            for axis in [ax.name for ax in self._constraints.axes]:
+                pos_range = self._constraints.axes_by_name[axis].value_range
+                self._current_position[axis] = (pos_range[0] + pos_range[1]) / 2
+                
+            # Reset simulated scan data
+            self._scan_data = None
+            self._back_scan_data = None
+            self._scan_settings = None
             self._back_scan_settings = None
-
-    def configure_back_scan(self, settings: ScanSettings) -> None:
-        """Configure the hardware with all parameters of the backwards scan.
-        Raise an exception if the settings are invalid and do not comply with the hardware constraints.
-
-        @param ScanSettings settings: ScanSettings instance holding all parameters for the back scan
+            
+    def configure_scan(self, settings):
+        """Configure the scanner with scan settings for the next scan to execute.
+        
+        @param ScanSettings settings: Settings object holding desired scan settings
+        
+        @return ScanSettings: Actual applied scan settings
         """
         with self._thread_lock:
             if self.module_state() != 'idle':
-                raise RuntimeError(
-                    'Unable to configure scan parameters while scan is running. ' 'Stop scanning and try again.'
-                )
-            if self._scan_settings is None:
-                raise RuntimeError('Configure forward scan settings first.')
-
-            # check settings - will raise appropriate exceptions if something is not right
-            self.constraints.check_back_scan_settings(backward_settings=settings, forward_settings=self._scan_settings)
-            self._back_scan_settings = settings
-
-    def move_absolute(self, position, velocity=None, blocking=False):
-        """Move the scanning probe to an absolute position as fast as possible or with a defined
-        velocity.
-
-        Log error and return current target position if something fails or a 1D/2D scan is in
-        progress.
-        """
-        with self._thread_lock:
-            if self.module_state() != 'idle':
-                raise RuntimeError('Scanning in progress. Unable to move to position.')
-            elif not set(position).issubset(self._position_ranges):
-                raise ValueError(
-                    f'Invalid axes encountered in position dict. ' f'Valid axes are: {set(self._position_ranges)}'
-                )
+                self.log.error('Cannot configure scanner while scan is running. Stop scan first.')
+                return self._scan_settings
+                
+            # Check if scan settings are valid
+            self.validate_scan_settings(settings)
+            
+            # Apply settings
+            self._scan_settings = settings
+            if settings.backward_scan_enabled:
+                self._back_scan_settings = self.calculate_backwards_scan_settings(settings)
             else:
-                move_distance = {ax: np.abs(pos - self._current_position[ax]) for ax, pos in position.items()}
-                if velocity is None:
-                    move_time = 0.01
-                else:
-                    move_time = max(0.01, np.sqrt(np.sum(dist**2 for dist in move_distance.values())) / velocity)
-                    
-                # Simulate movement time
-                time.sleep(move_time)
+                self._back_scan_settings = None
                 
-                # Update the position
-                self._current_position.update(position)
-                
-                # Update the simulator position
-                self._qudi_facade.confocal_simulator.set_position(
-                    self._current_position.get('x', None),
-                    self._current_position.get('y', None),
-                    self._current_position.get('z', None)
-                )
-                
-            return self._current_position
-
-    def move_relative(self, distance, velocity=None, blocking=False):
-        """Move the scanning probe by a relative distance from the current target position as fast
-        as possible or with a defined velocity.
-
-        Log error and return current target position if something fails or a 1D/2D scan is in
-        progress.
-        """
-        with self._thread_lock:
-            self.log.debug('NV simulator scanning probe "move_relative" called.')
-            if self.module_state() != 'idle':
-                raise RuntimeError('Scanning in progress. Unable to move relative.')
-            elif not set(distance).issubset(self._position_ranges):
-                raise ValueError(
-                    'Invalid axes encountered in distance dict. ' f'Valid axes are: {set(self._position_ranges)}'
-                )
-            else:
-                new_pos = {ax: self._current_position[ax] + dist for ax, dist in distance.items()}
-                if velocity is None:
-                    move_time = 0.01
-                else:
-                    move_time = max(0.01, np.sqrt(np.sum(dist**2 for dist in distance.values())) / velocity)
-                    
-                # Simulate movement time
-                time.sleep(move_time)
-                
-                # Update the position
-                self._current_position.update(new_pos)
-                
-                # Update the simulator position
-                self._qudi_facade.confocal_simulator.set_position(
-                    self._current_position.get('x', None),
-                    self._current_position.get('y', None),
-                    self._current_position.get('z', None)
-                )
-                
-            return self._current_position
-
-    def get_target(self):
-        """
-        Retrieve the current target position of the scanner hardware.
-
-        Returns
-        -------
-        dict
-            A dictionary representing the current target position for each axis.
-        """
-        with self._thread_lock:
-            return self._current_position.copy()
-
-    def get_position(self):
-        """
-        Retrieve a snapshot of the actual scanner position from position feedback sensors.
-
-        Returns
-        -------
-        dict
-            A dictionary representing the current actual position for each axis.
-        """
-        with self._thread_lock:
-            self.log.debug('NV simulator scanning probe "get_position" called.')
-            # Add some random noise to simulate position inaccuracy
-            position = {
-                ax: pos + np.random.normal(0, self._position_accuracy[ax]) for ax, pos in self._current_position.items()
-            }
-            return position
-
+            # Reset scan data
+            self._scan_data = None
+            self._back_scan_data = None
+            
+            return self._scan_settings
+            
     def start_scan(self):
-        """Start a scan as configured beforehand.
-        Log an error if something fails or a 1D/2D scan is in progress.
+        """Start the configured scan.
+        
+        @return bool: Scan started successfully
         """
         with self._thread_lock:
-            self.log.debug('NV simulator scanning probe "start_scan" called.')
             if self.module_state() != 'idle':
-                raise RuntimeError('Cannot start scan. Scan already in progress.')
-            if not self.scan_settings:
-                raise RuntimeError('No scan settings configured. Cannot start scan.')
+                self.log.error('Cannot start scan. Scanner is already scanning.')
+                return False
                 
-            self.module_state.lock()
-
+            if self._scan_settings is None:
+                self.log.error('Cannot start scan. No scan settings configured.')
+                return False
+                
             # Initialize scan data
-            self._scan_data = ScanData.from_constraints(
-                settings=self.scan_settings, 
-                constraints=self.constraints, 
-                scanner_target_at_start=self.get_target()
-            )
-            self._scan_data.new_scan()
-
+            self._scan_data = self._init_scan_data(self._scan_settings)
             if self._back_scan_settings is not None:
-                self._back_scan_data = ScanData.from_constraints(
-                    settings=self.back_scan_settings,
-                    constraints=self.constraints,
-                    scanner_target_at_start=self.get_target(),
-                )
-                self._back_scan_data.new_scan()
-
-            self._scan_start_time = time.time()
+                self._back_scan_data = self._init_scan_data(self._back_scan_settings)
+                
+            # Reset pixel counters
             self._last_forward_pixel = 0
             self._last_backward_pixel = 0
             
-            # Calculate timer interval - update twice per line
-            line_time = self.scan_settings.resolution[0] / self.scan_settings.frequency
-            timer_interval_ms = int(0.5 * line_time * 1000)
-            self._update_timer.setInterval(timer_interval_ms)
-
-        self._start_timer()
-
-    def stop_scan(self):
-        """Stop the currently running scan.
-        Log an error if something fails or no 1D/2D scan is in progress.
-        """
-        self.log.debug('NV simulator scanning probe "stop_scan" called.')
-        if self.module_state() == 'locked':
-            self._stop_timer()
-            self.module_state.unlock()
-        else:
-            raise RuntimeError('No scan in progress. Cannot stop scan.')
-
-    def emergency_stop(self):
-        """Emergency stop the scan process."""
-        try:
-            self.module_state.unlock()
-        except FysomError:
-            pass
-        self.log.warning('NV simulator scanner has been emergency stopped.')
-
-    def _handle_timer(self):
-        """Update during a running scan."""
-        try:
-            with self._thread_lock:
-                self._update_scan_data()
-        except Exception as e:
-            self.log.error("Could not update scan data.", exc_info=e)
-
-    def _update_scan_data(self) -> None:
-        """Update scan data by simulating fluorescence at each scan position."""
-        if self.module_state() == 'idle':
-            raise RuntimeError("Scan is not running.")
-
-        # Calculate how far the scan has progressed based on time elapsed
-        t_elapsed = time.time() - self._scan_start_time
-        t_forward = self.scan_settings.resolution[0] / self.scan_settings.frequency
-        
-        if self.back_scan_settings is not None:
-            back_resolution = self.back_scan_settings.resolution[0]
-            t_backward = back_resolution / self.back_scan_settings.frequency
-        else:
-            back_resolution = 0
-            t_backward = 0
+            # Record start time
+            self._scan_start_time = time.time()
             
-        t_complete_line = t_forward + t_backward
-
-        # Calculate how many lines have been completed and current position in the line
-        aq_lines = int(t_elapsed / t_complete_line)
-        t_current_line = t_elapsed % t_complete_line
-        
-        if t_current_line < t_forward:
-            # Currently in forwards scan
-            aq_px_backward = back_resolution * aq_lines
-            aq_lines_forward = aq_lines + (t_current_line / t_forward)
-            aq_px_forward = int(self.scan_settings.resolution[0] * aq_lines_forward)
-        else:
-            # Currently in backwards scan
-            aq_px_forward = self.scan_settings.resolution[0] * (aq_lines + 1)
-            aq_lines_backward = aq_lines + (t_current_line - t_forward) / t_backward
-            aq_px_backward = int(back_resolution * aq_lines_backward)
-
-        # Calculate the scan vectors for the newly acquired pixels
-        scan_vectors = self._calculate_scan_vectors(self._last_forward_pixel, aq_px_forward)
-        
-        # Generate fluorescence data for each new position
-        new_forward_data = self._generate_fluorescence_data(scan_vectors)
-        
-        # Update scan data with the newly computed values
-        # transposing is necessary to fill along the fast axis first
-        for ch in self.constraints.channels:
-            self._scan_data.data[ch].T.flat[self._last_forward_pixel : aq_px_forward] = new_forward_data
+            # Set module state to running
+            self.module_state.lock()
             
-        self._last_forward_pixel = aq_px_forward
-
-        # Handle back scan if configured
-        if self._back_scan_settings is not None:
-            back_scan_vectors = self._calculate_back_scan_vectors(self._last_backward_pixel, aq_px_backward)
-            new_backward_data = self._generate_fluorescence_data(back_scan_vectors)
-            
-            for ch in self.constraints.channels:
-                self._back_scan_data.data[ch].T.flat[self._last_backward_pixel : aq_px_backward] = new_backward_data
+            # Set up timer for simulating scanning
+            if self._update_timer is None:
+                self._update_timer = QtCore.QTimer()
+                self._update_timer.setSingleShot(False)
+                self._update_timer.timeout.connect(self._simulate_scan_progress, QtCore.Qt.QueuedConnection)
                 
-            self._last_backward_pixel = aq_px_backward
-
-        # Check if scan is finished
-        if self.scan_settings.scan_dimension == 1:
-            is_finished = aq_lines >= 1
-        else:
-            is_finished = aq_lines >= self.scan_settings.resolution[1]
+            # Start timer for simulating scan progress
+            scan_time = self._calculate_scan_time(self._scan_settings)
+            update_interval = scan_time / (self._scan_settings.resolution[0] * self._scan_settings.resolution[1]) * 1000  # in ms
+            update_interval = max(10, min(500, update_interval))  # Keep between 10-500ms for responsiveness
+            self._update_timer.start(int(update_interval))
             
-        if is_finished:
+            self.log.info('Scan started')
+            return True
+            
+    def stop_scan(self):
+        """Stop a running scan.
+        
+        @return bool: Scan stopped successfully
+        """
+        with self._thread_lock:
+            if self.module_state() == 'idle':
+                self.log.warning('No scan is running. Cannot stop.')
+                return False
+                
+            # Stop scan timer
+            if self._update_timer is not None and self._update_timer.isActive():
+                self._update_timer.stop()
+                
+            # Unlock module state
             self.module_state.unlock()
-            self.log.debug("Scan finished.")
-        else:
-            self._start_timer()
-
-    def get_scan_data(self) -> Optional[ScanData]:
-        """Retrieve the ScanData instance used in the scan."""
+            
+            self.log.info('Scan stopped')
+            return True
+            
+    def get_scan_data(self):
+        """Get the scan data for the currently running or last finished scan.
+        
+        @return ScanData: Scan data object containing data and scan settings
+        """
         with self._thread_lock:
             if self._scan_data is None:
+                self.log.warning('No scan data available')
                 return None
-            else:
-                return self._scan_data.copy()
+                
+            return self._scan_data
 
-    def get_back_scan_data(self) -> Optional[ScanData]:
-        """Retrieve the ScanData instance used in the backwards scan."""
+    def get_position(self):
+        """Get the current position of the scanning probe.
+        
+        @return Dict[str, float]: Current position of the scan probe in meters for each axis
+        """
         with self._thread_lock:
-            if self._back_scan_data is None:
-                return None
-            return self._back_scan_data.copy()
-
-    def _start_timer(self):
-        """Start the update timer."""
-        if self.thread() is not QtCore.QThread.currentThread():
-            QtCore.QMetaObject.invokeMethod(self._update_timer, 'start', QtCore.Qt.BlockingQueuedConnection)
-        else:
-            self._update_timer.start()
-
-    def _stop_timer(self):
-        """Stop the update timer."""
-        if self.thread() is not QtCore.QThread.currentThread():
-            QtCore.QMetaObject.invokeMethod(self._update_timer, 'stop', QtCore.Qt.BlockingQueuedConnection)
-        else:
-            self._update_timer.stop()
-
-    def _calculate_scan_vectors(self, start_pixel, end_pixel):
-        """Calculate the scan positions for a range of pixels."""
-        # Get the axes being scanned
-        axes = self.scan_settings.axes
+            return self._current_position.copy()
+            
+    def set_position(self, position):
+        """Set the current position of the scanning probe.
         
-        # Get the total number of pixels
-        total_pixels = np.prod(self.scan_settings.resolution)
+        @param Dict[str, float] position: Position to set in meters for each axis
         
-        # Get the scan ranges for each axis
-        ranges = self.scan_settings.range
-        
-        # Calculate the position for each pixel in the range
-        positions = {}
-        for i, axis in enumerate(axes):
-            if i == 0:  # Fast axis
-                # Calculate the fast axis position for each pixel
-                axis_range = np.linspace(ranges[0][0], ranges[0][1], self.scan_settings.resolution[0])
-                pos_indices = np.arange(start_pixel, end_pixel) % self.scan_settings.resolution[0]
-                positions[axis] = axis_range[pos_indices]
-            elif i == 1 and self.scan_settings.scan_dimension > 1:  # Slow axis
-                # Calculate the slow axis position for each pixel
-                axis_range = np.linspace(ranges[1][0], ranges[1][1], self.scan_settings.resolution[1])
-                pos_indices = np.arange(start_pixel, end_pixel) // self.scan_settings.resolution[0]
-                positions[axis] = axis_range[pos_indices]
-            else:
-                # For other axes, use the current position
-                positions[axis] = np.ones(end_pixel - start_pixel) * self._current_position[axis]
+        @return Dict[str, float]: Actual position set for each axis
+        """
+        with self._thread_lock:
+            if self.module_state() != 'idle':
+                self.log.error('Cannot set position while scan is running')
+                return self._current_position.copy()
                 
-        return positions
-
-    def _calculate_back_scan_vectors(self, start_pixel, end_pixel):
-        """Calculate the scan positions for a range of pixels in the back scan."""
-        # Similar to _calculate_scan_vectors but using back_scan_settings
-        if self._back_scan_settings is None:
-            return {}
-            
-        axes = self._back_scan_settings.axes
-        ranges = self._back_scan_settings.range
-        
-        positions = {}
-        for i, axis in enumerate(axes):
-            if i == 0:  # Fast axis (reversed for back scan)
-                axis_range = np.linspace(ranges[0][1], ranges[0][0], self._back_scan_settings.resolution[0])
-                pos_indices = np.arange(start_pixel, end_pixel) % self._back_scan_settings.resolution[0]
-                positions[axis] = axis_range[pos_indices]
-            elif i == 1 and self._back_scan_settings.scan_dimension > 1:  # Slow axis
-                axis_range = np.linspace(ranges[1][0], ranges[1][1], self._back_scan_settings.resolution[1])
-                pos_indices = np.arange(start_pixel, end_pixel) // self._back_scan_settings.resolution[0]
-                positions[axis] = axis_range[pos_indices]
-            else:
-                positions[axis] = np.ones(end_pixel - start_pixel) * self._current_position[axis]
+            # Validate position against constraints
+            for axis, pos in position.items():
+                if axis not in self._current_position:
+                    self.log.error(f'Invalid axis: {axis}')
+                    continue
+                    
+                # Check if position is within range
+                ax_range = self._constraints.axes_by_name[axis].value_range
+                if not ax_range[0] <= pos <= ax_range[1]:
+                    self.log.warning(f'Position out of range for axis {axis}: {pos}')
+                    pos = max(ax_range[0], min(ax_range[1], pos))
+                    
+                # Apply position
+                self._current_position[axis] = pos
                 
-        return positions
-
-    def _generate_fluorescence_data(self, scan_vectors):
-        """Generate fluorescence data for the given scan positions."""
-        # Check if we have positions to process
-        if not scan_vectors or all(len(pos) == 0 for pos in scan_vectors.values()):
-            return np.array([])
+            # Update the simulated fluorescence signal based on the current position
+            self._update_simulated_signal()
+                
+            return self._current_position.copy()
             
-        # Number of pixels to generate data for
-        num_pixels = len(next(iter(scan_vectors.values())))
+    def get_target_position(self):
+        """Get the target position of the scanning probe defined by the current scanner settings.
         
-        # For each position, set the confocal position and get the fluorescence
-        fluorescence_data = np.zeros(num_pixels)
+        @return Dict[str, float]: Target position for each axis
+        """
+        with self._thread_lock:
+            # For NV simulator, the target is the current position
+            return self._current_position.copy()
+            
+    def signal_scan_next_line(self):
+        """Signal that the position should be moved to the start of the next line in the scan.
+        This is a no-op for the NV simulator.
         
-        for i in range(num_pixels):
-            # Get the position for this pixel
-            position = {axis: values[i] for axis, values in scan_vectors.items()}
+        @return bool: Next line preparation successful
+        """
+        return True
+        
+    def signal_image_updated(self, data=None):
+        """Signal that the image is updated to potentially call slave logic module methods.
+        This is a no-op for the NV simulator.
+        
+        @param data: Generic scan data object
+        
+        @return bool: Image update signal sending successful
+        """
+        return True
+        
+    # Helper methods
+    def _init_scan_data(self, settings):
+        """Initialize a scan data object with empty data arrays.
+        
+        @param ScanSettings settings: Scan settings to use
+        
+        @return ScanData: Initialized scan data object
+        """
+        data_arrays = dict()
+        for channel in self._constraints.channels:
+            data_arrays[channel.name] = np.zeros(tuple(settings.resolution), dtype=np.float64)
             
-            # Set the position in the simulator
-            self._qudi_facade.confocal_simulator.set_position(
-                position.get('x', None),
-                position.get('y', None),
-                position.get('z', None)
-            )
+        return ScanData(
+            settings=settings,
+            data=data_arrays,
+            scanner_position=self._current_position.copy(),
+            forward=True,
+            scan_time=self._calculate_scan_time(settings)
+        )
+        
+    def _calculate_scan_time(self, settings):
+        """Calculate the expected scan time based on settings.
+        
+        @param ScanSettings settings: Scan settings to use
+        
+        @return float: Expected scan time in seconds
+        """
+        # Calculate scan time based on the slowest axis frequency
+        slowest_freq = min(settings.frequency.values())
+        pixels_per_line = settings.resolution[0]
+        num_lines = settings.resolution[1]
+        
+        # Calculate time per line and total scan time
+        time_per_line = 1.0 / slowest_freq
+        total_time = time_per_line * num_lines
+        
+        return total_time
+        
+    def _generate_nv_positions(self, n_nv):
+        """Generate random NV positions within the scan volume.
+        
+        @param int n_nv: Number of NV centers to generate
+        
+        @return np.ndarray: Array of NV center positions with shape (n_nv, 3)
+        """
+        # Get scan volume dimensions
+        x_range = self._position_ranges.get('x', [0, 100e-6])
+        y_range = self._position_ranges.get('y', [0, 100e-6])
+        z_range = self._position_ranges.get('z', [-50e-6, 50e-6])
+        
+        # Generate random positions
+        x_pos = np.random.uniform(min(x_range), max(x_range), n_nv)
+        y_pos = np.random.uniform(min(y_range), max(y_range), n_nv)
+        z_pos = np.random.uniform(min(z_range), max(z_range), n_nv)
+        
+        # Return as array
+        return np.column_stack((x_pos, y_pos, z_pos))
+        
+    def _update_simulated_signal(self):
+        """Update the simulated fluorescence signal based on the current position.
+        
+        @return float: Fluorescence signal value
+        """
+        # Simulated PSF parameters
+        psf_width_xy = 0.3e-6  # 300 nm lateral resolution
+        psf_width_z = 0.7e-6   # 700 nm axial resolution
+        
+        # Calculate distance to each NV center
+        if self._simulated_diamond is None or len(self._simulated_diamond) == 0:
+            return 0.0
             
-            # Get the fluorescence rate from the simulator
-            # Apply laser excitation
-            self._qudi_facade.laser_controller.on()
+        # Current position as array
+        pos = np.array([
+            self._current_position.get('x', 0),
+            self._current_position.get('y', 0),
+            self._current_position.get('z', 0)
+        ])
+        
+        # Calculate distances
+        distances_sq = np.sum((self._simulated_diamond - pos)**2, axis=1)
+        
+        # Calculate PSF weights
+        xy_dist_sq = np.sum((self._simulated_diamond[:, :2] - pos[:2])**2, axis=1)
+        z_dist_sq = (self._simulated_diamond[:, 2] - pos[2])**2
+        
+        # Apply PSF
+        psf_weights = np.exp(-2 * xy_dist_sq / psf_width_xy**2) * np.exp(-2 * z_dist_sq / psf_width_z**2)
+        
+        # Sum contributions (each NV contributes proportionally to PSF weight)
+        signal = np.sum(psf_weights)
+        
+        # Scale and add noise
+        base_level = 1000  # counts per second background
+        max_signal = 100000  # max counts per second
+        
+        signal = base_level + signal * max_signal
+        
+        # Add random noise (Poisson)
+        noise = np.random.poisson(signal * 0.01)  # 1% noise
+        signal += noise
+        
+        # Update the QudiFacade collection efficiency (0-1 scale)
+        if self._qudi_facade is not None:
+            # Scale to 0-1 range for collection efficiency
+            self._qudi_facade.set_collection_efficiency(signal / (max_signal + base_level))
+        
+        return signal
+        
+    def _simulate_scan_progress(self):
+        """Simulate scan progress by updating pixels.
+        
+        This method is called by the timer to simulate scanning.
+        """
+        with self._thread_lock:
+            if self.module_state() == 'idle' or self._scan_settings is None:
+                if self._update_timer is not None and self._update_timer.isActive():
+                    self._update_timer.stop()
+                return
+                
+            # Calculate how many pixels to update this time
+            pixels_per_call = max(1, self._scan_settings.resolution[0] // 100)
+            total_pixels = self._scan_settings.resolution[0] * self._scan_settings.resolution[1]
             
-            # Get the fluorescence rate (counts per second)
-            count_rate = self._qudi_facade.nv_model.get_fluorescence_rate()
-            
-            # Add some randomness to the count rate to simulate photon statistics
-            # Use Poisson distribution for realistic noise
-            integration_time = 1.0 / self.scan_settings.frequency  # seconds per pixel
-            photon_count = np.random.poisson(count_rate * integration_time)
-            fluorescence_data[i] = photon_count / integration_time  # Convert back to rate
-            
-            # Turn off laser
-            self._qudi_facade.laser_controller.off()
-            
-        return fluorescence_data
+            # Update forward scan
+            for _ in range(pixels_per_call):
+                if self._last_forward_pixel >= total_pixels:
+                    break
+                    
+                # Calculate current x, y position in the scan grid
+                y_idx = self._last_forward_pixel // self._scan_settings.resolution[0]
+                x_idx = self._last_forward_pixel % self._scan_settings.resolution[0]
+                
+                # Calculate the actual position in space
+                x_range = (self._scan_settings.range[0]['x'], self._scan_settings.range[1]['x'])
+                y_range = (self._scan_settings.range[0]['y'], self._scan_settings.range[1]['y'])
+                
+                x_pos = x_range[0] + (x_range[1] - x_range[0]) * (x_idx / (self._scan_settings.resolution[0] - 1))
+                y_pos = y_range[0] + (y_range[1] - y_range[0]) * (y_idx / (self._scan_settings.resolution[1] - 1))
+                
+                # Set the current position
+                self._current_position['x'] = x_pos
+                self._current_position['y'] = y_pos
+                
+                # Calculate the simulated signal
+                signal = self._update_simulated_signal()
+                
+                # Store the signal in the scan data
+                self._scan_data.data['NV Fluorescence'][y_idx, x_idx] = signal
+                
+                # Increment pixel counter
+                self._last_forward_pixel += 1
+                
+            # Update backward scan if enabled
+            if self._back_scan_settings is not None and self._back_scan_data is not None:
+                for _ in range(pixels_per_call):
+                    if self._last_backward_pixel >= total_pixels:
+                        break
+                        
+                    # For backward scan, x index runs backwards
+                    y_idx = self._last_backward_pixel // self._back_scan_settings.resolution[0]
+                    x_idx = self._back_scan_settings.resolution[0] - 1 - (self._last_backward_pixel % self._back_scan_settings.resolution[0])
+                    
+                    # The position is the same as for the forward scan
+                    x_range = (self._back_scan_settings.range[0]['x'], self._back_scan_settings.range[1]['x'])
+                    y_range = (self._back_scan_settings.range[0]['y'], self._back_scan_settings.range[1]['y'])
+                    
+                    x_pos = x_range[0] + (x_range[1] - x_range[0]) * (x_idx / (self._back_scan_settings.resolution[0] - 1))
+                    y_pos = y_range[0] + (y_range[1] - y_range[0]) * (y_idx / (self._back_scan_settings.resolution[1] - 1))
+                    
+                    # Set the current position (already set by forward scan, so no need to update)
+                    
+                    # Calculate the simulated signal (add some different noise)
+                    signal = self._scan_data.data['NV Fluorescence'][y_idx, x_idx]
+                    signal = signal + np.random.normal(0, signal * 0.05)  # 5% noise for backward scan
+                    
+                    # Store the signal in the back scan data
+                    self._back_scan_data.data['NV Fluorescence'][y_idx, x_idx] = signal
+                    
+                    # Increment pixel counter
+                    self._last_backward_pixel += 1
+                    
+            # Check if scan is complete
+            if self._last_forward_pixel >= total_pixels:
+                if self._back_scan_settings is None or self._last_backward_pixel >= total_pixels:
+                    # Stop the timer and scan
+                    if self._update_timer is not None and self._update_timer.isActive():
+                        self._update_timer.stop()
+                        
+                    # Unlock module state
+                    self.module_state.unlock()
+                    
+                    self.log.info('Scan completed')
+                    
+                    # Emit scan finished signal
+                    self.scan_finished.emit(self._scan_data)
+                    
+    def get_back_scan_data(self):
+        """Get the backward scan data for the currently running or last finished scan.
+        
+        @return ScanData: Backward scan data object containing data and scan settings
+        """
+        with self._thread_lock:
+            return self._back_scan_data
