@@ -22,6 +22,8 @@ If not, see <https://www.gnu.org/licenses/>.
 import time
 from typing import Optional, Dict, Tuple, Any, List
 import numpy as np
+import os
+import sys
 from PySide2 import QtCore
 from fysom import FysomError
 from dataclasses import dataclass
@@ -39,7 +41,11 @@ from qudi.interface.scanning_probe_interface import (
     CoordinateTransformMixin
 )
 
-from .qudi_facade import QudiFacade
+# Import QudiFacade directly from current directory to avoid circular imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+from qudi_facade import QudiFacade
 
 
 @dataclass(frozen=True)

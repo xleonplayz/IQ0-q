@@ -20,9 +20,28 @@ A quantum-mechanical simulator for NV centers in diamond, built on SimOS.
 
 ## Installation
 
+For normal use:
 ```bash
 pip install -e .
 ```
+
+For Qudi integration, install using the full path:
+```bash
+# Linux/macOS
+pip install -e /full/path/to/IQO-q/sim
+
+# Windows
+pip install -e C:\Path\to\IQO-q\sim
+```
+
+## Troubleshooting
+
+If you see errors like:
+```
+ImportError: Could not import the NV simulator model. Error: No module named 'sim'
+```
+
+This means the simulator package is not in the Python path. Make sure you've installed it with the commands above.
 
 ## Basic Usage
 

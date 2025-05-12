@@ -26,27 +26,31 @@ import numpy as np
 import time
 from pathlib import Path
 
-# Add the simulator path to enable importing from the sim module
-sim_path = str(Path(os.path.dirname(os.path.abspath(__file__))).parent.parent.parent.parent / 'sim')
-if sim_path not in sys.path:
-    sys.path.append(sim_path)
-
-# Add the parent directory of sim to enable direct imports
-sim_parent = str(Path(os.path.dirname(os.path.abspath(__file__))).parent.parent.parent.parent)
-if sim_parent not in sys.path:
-    sys.path.append(sim_parent)
-
+# Direct import from the physical location
+# This is a hard-coded approach that should work regardless of installation
 try:
-    # Try the direct import first (when installed via pip install -e)
-    from sim.src.model import PhysicalNVModel
-except ImportError:
-    try:
-        # Try with the absolute import path
-        import sys
-        sys.path.insert(0, sim_path)
-        from src.model import PhysicalNVModel
-    except ImportError as e:
-        raise ImportError(f"Could not import the NV simulator model. Try installing the simulator package with 'pip install -e {sim_path}'. Error: {e}")
+    # Get the base directory
+    base_dir = Path(os.path.dirname(os.path.abspath(__file__))).parent.parent.parent.parent
+    sim_src_dir = os.path.join(str(base_dir), 'sim', 'src')
+    
+    # Add to path
+    if sim_src_dir not in sys.path:
+        sys.path.insert(0, sim_src_dir)
+    
+    # Import directly from the module
+    from model import PhysicalNVModel
+except ImportError as e:
+    # Provide a clear error message
+    error_msg = f"""
+    NV Simulator Import Error:
+    {e}
+    
+    Please ensure the sim module is available by running:
+    pip install -e C:\\Users\\qudi\\Desktop\\IQO\\IQO-q\\sim
+    
+    Alternative: Copy the model.py file to {os.path.dirname(os.path.abspath(__file__))}
+    """
+    raise ImportError(error_msg)
 
 class LaserController:
     """Manages the laser excitation for NV centers."""

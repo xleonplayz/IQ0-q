@@ -23,6 +23,7 @@ import time
 import numpy as np
 import datetime
 import os
+import sys
 
 from qudi.core.statusvariable import StatusVar
 from qudi.core.configoption import ConfigOption
@@ -32,7 +33,11 @@ from qudi.util.yaml import yaml_dump
 from qudi.interface.pulser_interface import PulserInterface, PulserConstraints, SequenceOption
 from qudi.util.mutex import Mutex
 
-from .qudi_facade import QudiFacade
+# Import QudiFacade directly from current directory to avoid circular imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+from qudi_facade import QudiFacade
 
 
 class NVSimPulser(PulserInterface):

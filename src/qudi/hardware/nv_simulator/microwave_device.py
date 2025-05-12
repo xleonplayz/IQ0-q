@@ -21,12 +21,19 @@ If not, see <https://www.gnu.org/licenses/>.
 
 import time
 import numpy as np
+import os
+import sys
+from pathlib import Path
 
 from qudi.interface.microwave_interface import MicrowaveInterface, MicrowaveConstraints
 from qudi.util.enums import SamplingOutputMode
 from qudi.util.mutex import Mutex
 
-from .qudi_facade import QudiFacade
+# Import QudiFacade directly from current directory to avoid circular imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+from qudi_facade import QudiFacade
 
 class NVSimMicrowaveDevice(MicrowaveInterface):
     """A qudi hardware module that uses the NV simulator as a microwave source.

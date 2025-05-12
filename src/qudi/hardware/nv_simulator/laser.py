@@ -20,12 +20,18 @@ If not, see <https://www.gnu.org/licenses/>.
 """
 
 import time
+import os
+import sys
 from qudi.interface.simple_laser_interface import SimpleLaserInterface
 from qudi.interface.simple_laser_interface import LaserState, ShutterState, ControlMode
 from qudi.core.configoption import ConfigOption
 from qudi.util.mutex import Mutex
 
-from .qudi_facade import QudiFacade
+# Import QudiFacade directly from current directory to avoid circular imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+from qudi_facade import QudiFacade
 
 
 class NVSimLaser(SimpleLaserInterface):
