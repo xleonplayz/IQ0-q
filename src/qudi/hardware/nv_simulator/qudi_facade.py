@@ -31,10 +31,22 @@ sim_path = str(Path(os.path.dirname(os.path.abspath(__file__))).parent.parent.pa
 if sim_path not in sys.path:
     sys.path.append(sim_path)
 
+# Add the parent directory of sim to enable direct imports
+sim_parent = str(Path(os.path.dirname(os.path.abspath(__file__))).parent.parent.parent.parent)
+if sim_parent not in sys.path:
+    sys.path.append(sim_parent)
+
 try:
+    # Try the direct import first (when installed via pip install -e)
     from sim.src.model import PhysicalNVModel
-except ImportError as e:
-    raise ImportError(f"Could not import the NV simulator model. Error: {e}")
+except ImportError:
+    try:
+        # Try with the absolute import path
+        import sys
+        sys.path.insert(0, sim_path)
+        from src.model import PhysicalNVModel
+    except ImportError as e:
+        raise ImportError(f"Could not import the NV simulator model. Try installing the simulator package with 'pip install -e {sim_path}'. Error: {e}")
 
 class LaserController:
     """Manages the laser excitation for NV centers."""

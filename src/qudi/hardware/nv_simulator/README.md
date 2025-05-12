@@ -21,9 +21,24 @@ This module provides a comprehensive NV center simulator that integrates with th
 
 ## Installation
 
-1. Ensure the simulator core (`/sim/` directory) is properly installed
+1. Install the simulator core as an editable package:
+   ```bash
+   cd /path/to/IQO-q
+   pip install -e sim/
+   ```
+   This step is crucial for the simulator to function properly!
+
 2. Copy the `nv_simulator` directory to your Qudi installation under `hardware/`
 3. Use the provided `nv_simulator.cfg` as a base for your configuration
+
+### Troubleshooting
+
+If you encounter an error like:
+```
+ImportError: Could not import the NV simulator model. Error: No module named 'sim'
+```
+
+Make sure you've installed the simulator package as shown above. The simulator must be installed as a Python package for the Qudi interface to find it.
 
 ## Configuration
 
