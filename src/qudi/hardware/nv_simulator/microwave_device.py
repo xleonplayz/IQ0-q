@@ -95,11 +95,11 @@ class NVSimMicrowaveDevice(MicrowaveInterface):
         self._scan_sample_rate = 100
         self._is_scanning = False
         
-        # Initialize the simulator
-        self._qudi_facade = QudiFacade({
-            'magnetic_field': self._magnetic_field,
-            'temperature': self._temperature
-        })
+        # Get singleton instance of QudiFacade
+        self._qudi_facade = QudiFacade._instance
+        if self._qudi_facade is None:
+            self.log.error("QudiFacade is not initialized. Make sure it's activated first.")
+            raise RuntimeError("QudiFacade not available")
         
         # Reset the NV simulator state
         self._qudi_facade.reset()

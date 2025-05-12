@@ -26,6 +26,9 @@ import numpy as np
 import time
 from pathlib import Path
 
+from qudi.core.module import Base
+from qudi.core.configoption import ConfigOption
+
 # Direct import from the physical location
 # This is a hard-coded approach that should work regardless of installation
 try:
@@ -291,8 +294,19 @@ class PulseController:
         return np.array(results)
 
 
-class QudiFacade:
+class QudiFacade(Base):
     """Central manager for all simulator resources used by Qudi interfaces."""
+    
+    # Config options using proper Qudi format
+    _magnetic_field = ConfigOption('magnetic_field', default=[0, 0, 0], missing='warn')
+    _temperature = ConfigOption('temperature', default=300, missing='warn')
+    _zero_field_splitting = ConfigOption('zero_field_splitting', default=2.87e9, missing='warn')
+    _gyromagnetic_ratio = ConfigOption('gyromagnetic_ratio', default=2.8025e10, missing='warn')
+    _t1 = ConfigOption('t1', default=5.0e-3, missing='warn')
+    _t2 = ConfigOption('t2', default=1.0e-5, missing='warn')
+    _thread_safe = ConfigOption('thread_safe', default=True, missing='warn')
+    _memory_management = ConfigOption('memory_management', default=True, missing='warn')
+    _optimize_performance = ConfigOption('optimize_performance', default=True, missing='warn')
     
     _instance = None
     
@@ -303,29 +317,37 @@ class QudiFacade:
             cls._instance._initialized = False
         return cls._instance
     
-    def __init__(self, config=None):
-        """
-        Initialize all simulator components based on configuration.
-        
-        @param config: dict, optional configuration parameters
-        """
+    def __init__(self, **kwargs):
+        """Initialize the QudiFacade."""
+        super().__init__(**kwargs)
+        self._initialized = False
+    
+    def on_activate(self):
+        """Initialization performed during activation of the module."""
         # Only initialize once
         if self._initialized:
             return
             
         self._initialized = True
-        self.config = config or {}
         
-        # Create the NV model
-        self.nv_model = PhysicalNVModel()
+        # Create the NV model with options from config
+        model_params = {
+            'zero_field_splitting': self._zero_field_splitting,
+            'gyromagnetic_ratio': self._gyromagnetic_ratio,
+            't1': self._t1,
+            't2': self._t2,
+            'thread_safe': self._thread_safe,
+            'memory_management': self._memory_management,
+            'optimize_performance': self._optimize_performance
+        }
+        
+        self.nv_model = PhysicalNVModel(**model_params)
         
         # Set magnetic field from config
-        magnetic_field = self.config.get('magnetic_field', [0, 0, 0])
-        self.nv_model.set_magnetic_field(magnetic_field)
+        self.nv_model.set_magnetic_field(self._magnetic_field)
         
         # Set temperature from config
-        temperature = self.config.get('temperature', 300)
-        self.nv_model.set_temperature(temperature)
+        self.nv_model.set_temperature(self._temperature)
         
         # Create controllers
         self.laser_controller = LaserController(self.nv_model)
@@ -336,6 +358,14 @@ class QudiFacade:
         # State variables
         self.is_running = False
         
+        self.log.info("NV Simulator Facade activated")
+    
+    def on_deactivate(self):
+        """Clean-up performed during deactivation of the module."""
+        # Nothing specific to clean up
+        self.is_running = False
+        self.log.info("NV Simulator Facade deactivated")
+        
     def configure_from_file(self, config_path):
         """
         Load configuration from file and apply settings.
@@ -345,14 +375,14 @@ class QudiFacade:
         with open(config_path, 'r') as f:
             config = json.load(f)
         
-        self.config.update(config)
-        
         # Re-apply configuration
         if 'magnetic_field' in config:
             self.nv_model.set_magnetic_field(config['magnetic_field'])
         
         if 'temperature' in config:
             self.nv_model.set_temperature(config['temperature'])
+            
+        self.log.info(f"Configuration loaded from {config_path}")
     
     def reset(self):
         """Reset all simulator components."""
@@ -368,3 +398,5 @@ class QudiFacade:
         
         # Reset the confocal position
         self.confocal_simulator.set_position(0, 0, 0)
+        
+        self.log.info("NV Simulator reset to initial state")

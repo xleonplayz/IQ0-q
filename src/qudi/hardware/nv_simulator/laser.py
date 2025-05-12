@@ -66,8 +66,12 @@ class NVSimLaser(SimpleLaserInterface):
 
     def on_activate(self):
         """Activate module."""
-        # Initialize the simulator facade
-        self._qudi_facade = QudiFacade()
+        # Get singleton instance of QudiFacade
+        self._qudi_facade = QudiFacade._instance
+        if self._qudi_facade is None:
+            self.log.error("QudiFacade is not initialized. Make sure it's activated first.")
+            raise RuntimeError("QudiFacade not available")
+        
         self.log.info('NV Simulator Laser initialized')
 
     def on_deactivate(self):

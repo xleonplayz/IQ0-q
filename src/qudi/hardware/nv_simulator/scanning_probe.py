@@ -126,8 +126,11 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
 
     def on_activate(self):
         """Initialisation performed during activation of the module."""
-        # Initialize the simulator
-        self._qudi_facade = QudiFacade()
+        # Get singleton instance of QudiFacade
+        self._qudi_facade = QudiFacade._instance
+        if self._qudi_facade is None:
+            self.log.error("QudiFacade is not initialized. Make sure it's activated first.")
+            raise RuntimeError("QudiFacade not available")
         
         # Generate static constraints
         axes = list()
