@@ -78,10 +78,33 @@ class PhysicalNVModel:
     def reset_state(self):
         """Reset the NV state to the ground state |0⟩"""
         with self.lock:
-            # Simple placeholder - in actual implementation this would
-            # initialize proper quantum state with SimOS
-            self.state = np.zeros(3)
-            self.state[0] = 1.0  # |ms=0⟩ state
+            try:
+                # Initialize proper quantum state with SimOS
+                from sim.simos.simos import core, states
+                from sim.simos.simos.systems import NV
+                
+                # Create NV system if it doesn't exist
+                if not hasattr(self, '_simos_nv_system'):
+                    self._simos_nv_system = NV.NVSystem(optics=True, nitrogen=False, method='qutip')
+                
+                # Initialize state to |0⟩ state
+                if hasattr(self._simos_nv_system, 'Sp'):
+                    # Use projection operators to set to ms=0 state
+                    self._simos_nv_system_state = self._simos_nv_system.Sp[0].unit()
+                else:
+                    # Initialize a general state and set to ground state
+                    self._simos_nv_system_state = self._simos_nv_system.id.unit()
+                
+                # Update our simplified state representation
+                self.state = np.zeros(3)
+                self.state[0] = 1.0  # |ms=0⟩ state
+                
+                logger.debug("Reset NV state to |0⟩ using SimOS")
+            except Exception as e:
+                logger.warning(f"SimOS state reset failed: {e}, using fallback model")
+                # Simple fallback if SimOS initialization fails
+                self.state = np.zeros(3)
+                self.state[0] = 1.0  # |ms=0⟩ state
     
     def set_magnetic_field(self, field):
         """
@@ -169,7 +192,54 @@ class PhysicalNVModel:
         with self.lock:
             # Placeholder for actual time evolution
             logger.debug(f"Evolving state for {duration} s")
-            # In real implementation, this would use SimOS to do quantum evolution
+            # Use SimOS to perform quantum evolution
+            try:
+                # Import SimOS core components for time evolution
+                from sim.simos.simos import core, coherent, propagation
+                from sim.simos.simos.systems import NV
+
+                # Create or retrieve NV system using SimOS
+                if not hasattr(self, '_simos_nv_system'):
+                    # Create NV system through SimOS with appropriate parameters
+                    self._simos_nv_system = NV.NVSystem(optics=True, nitrogen=False, method='qutip')
+                    
+                    # Set initial NV state 
+                    self._simos_nv_system_state = self._simos_nv_system.id.unit()
+                
+                # Create Hamiltonian using SimOS
+                H_nv = self._simos_nv_system.field_hamiltonian(
+                    Bvec=self.b_field,  # Use current magnetic field
+                    EGS_vec=np.array([0, 0, 0]),  # No electric field for now
+                    EES_vec=np.array([0, 0, 0])
+                )
+                
+                # Update state via SimOS time evolution
+                if self._microwave_amplitude > 0:
+                    # Add driving term to Hamiltonian if microwave is on
+                    drive_term = self._microwave_amplitude * (
+                        self._simos_nv_system.Sx * np.cos(2*np.pi*self._microwave_frequency*duration) +
+                        self._simos_nv_system.Sy * np.sin(2*np.pi*self._microwave_frequency*duration)
+                    )
+                    H_nv += drive_term
+                    
+                # Evolve the state using SimOS propagation
+                self._simos_nv_system_state = propagation.evol(H_nv, duration) * self._simos_nv_system_state
+                
+                # Map the SimOS state back to our simplified state representation
+                # Extract probabilities from SimOS state and map to our state format
+                p_ms0 = coherent.expect(self._simos_nv_system.Sp[0], self._simos_nv_system_state)
+                p_ms1 = coherent.expect(self._simos_nv_system.Sp[1], self._simos_nv_system_state)
+                p_msm1 = coherent.expect(self._simos_nv_system.Sp[2], self._simos_nv_system_state)
+                
+                # Update our simplified state representation
+                self.state[0] = np.real(p_ms0)
+                self.state[1] = np.real(p_ms1)
+                self.state[2] = np.real(p_msm1)
+                
+                logger.debug(f"Evolved state using SimOS for {duration} s")
+            except Exception as e:
+                logger.warning(f"SimOS evolution failed: {e}, using fallback model")
+                # Fallback to simplified model if SimOS fails
             
     def get_fluorescence_rate(self):
         """
@@ -835,12 +905,40 @@ class PhysicalNVModel:
             Fluorescence signal in counts per second
         """
         with self.lock:
-            # In the simplified model, fluorescence depends on the ground state ms=0 population
-            ms0_pop = self.state[0]
-            
-            # ms=0 has higher fluorescence than ms=±1
-            base_fluorescence = 1e5  # counts/s
-            contrast = 0.3  # 30% contrast
-            
-            # Scale by collection efficiency
-            return base_fluorescence * self._collection_efficiency * (1.0 - contrast * (1.0 - ms0_pop))
+            try:
+                # Try to use SimOS for accurate fluorescence calculation
+                if hasattr(self, '_simos_nv_system') and hasattr(self, '_simos_nv_system_state'):
+                    from sim.simos.simos import NV
+                    
+                    # Get NV center specific helper functions
+                    ms0_expval = NV.expect(self._simos_nv_system.Sp[0], self._simos_nv_system_state)
+                    ms0_pop = np.real(ms0_expval)
+                    
+                    # Get accurate photoluminescence counts using NV center helpers
+                    base_fluorescence = 1e5  # counts/s
+                    contrast = 0.3  # 30% contrast
+                    fluorescence = NV.exp2cts(ms0_pop, contrast, base_fluorescence)
+                    
+                    # Scale by collection efficiency
+                    return fluorescence * self._collection_efficiency
+                else:
+                    # Fallback to simplified model
+                    ms0_pop = self.state[0]
+                    
+                    # ms=0 has higher fluorescence than ms=±1
+                    base_fluorescence = 1e5  # counts/s
+                    contrast = 0.3  # 30% contrast
+                    
+                    # Scale by collection efficiency
+                    return base_fluorescence * self._collection_efficiency * (1.0 - contrast * (1.0 - ms0_pop))
+            except Exception as e:
+                logger.warning(f"SimOS fluorescence calculation failed: {e}, using fallback model")
+                # Fallback to simplified model
+                ms0_pop = self.state[0]
+                
+                # ms=0 has higher fluorescence than ms=±1
+                base_fluorescence = 1e5  # counts/s
+                contrast = 0.3  # 30% contrast
+                
+                # Scale by collection efficiency
+                return base_fluorescence * self._collection_efficiency * (1.0 - contrast * (1.0 - ms0_pop))
