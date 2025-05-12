@@ -77,10 +77,10 @@ class NVSimScanningProbe(ScanningProbeInterface):
         self._stop_scan = threading.Event()
         
         # Scanner channels
-        self._scanner_channels = {
-            'fluorescence': ScannerChannel(name='fluorescence', unit='counts/s'),
-            'reflected': ScannerChannel(name='reflected', unit='norm')
-        }
+        self._scanner_channels = [
+            ScannerChannel(name='NV Fluorescence', unit='c/s'),
+            ScannerChannel(name='Reflected', unit='norm')
+        ]
         
         # Thread lock for thread safety
         self._thread_lock = self.module_state.lock_access()
@@ -140,7 +140,7 @@ class NVSimScanningProbe(ScanningProbeInterface):
             )
         }
         
-        channels = {ch.name: ch for ch in self._scanner_channels.values()}
+        channels = {ch.name: ch for ch in self._scanner_channels}
         
         backscan_capabilities = BackScanCapability.AVAILABLE | BackScanCapability.FULLY_CONFIGURABLE
         
@@ -216,7 +216,7 @@ class NVSimScanningProbe(ScanningProbeInterface):
             static_axes=frozenset({'z'}),  # Default: static z
             backscan_frequency_factor=self._backscan_ratio,
             backscan_resolution_factor=self._backscan_ratio,
-            analog_channels=frozenset(self._scanner_channels.keys()),
+            analog_channels=frozenset(ch.name for ch in self._scanner_channels),
             backscan_analog_channels=frozenset()  # No backscan channels by default
         )
 
@@ -300,7 +300,7 @@ class NVSimScanningProbe(ScanningProbeInterface):
         
         @return frozenset(str): Set of available scanner channel names
         """
-        return frozenset(self._scanner_channels.keys())
+        return frozenset(ch.name for ch in self._scanner_channels)
 
     def get_scanner_count_channels(self):
         """

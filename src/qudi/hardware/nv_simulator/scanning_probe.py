@@ -54,6 +54,17 @@ from qudi_facade import QudiFacade
 class NVSimScanConstraints(ScanConstraints):
     """Extended ScanConstraints for NV simulator"""
     spot_number: ScalarConstraint
+    
+    def __init__(self, axis_objects, channel_objects, back_scan_capability, has_position_feedback, square_px_only, spot_number):
+        super().__init__(
+            axis_objects=axis_objects,
+            channel_objects=channel_objects,
+            back_scan_capability=back_scan_capability,
+            has_position_feedback=has_position_feedback,
+            square_px_only=square_px_only
+        )
+        # Add the spot_number constraint as an attribute
+        object.__setattr__(self, 'spot_number', spot_number)
 
 
 class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
@@ -171,18 +182,22 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
             enforce_int=True
         )
         
+        # Prepare back scan capability flags
+        back_scan_capability = BackScanCapability(0)
+        if self._back_scan_available:
+            back_scan_capability |= BackScanCapability.AVAILABLE
+        if self._back_scan_frequency_configurable:
+            back_scan_capability |= BackScanCapability.FREQUENCY_CONFIGURABLE
+        if self._back_scan_resolution_configurable:
+            back_scan_capability |= BackScanCapability.RESOLUTION_CONFIGURABLE
+            
         # Create basic constraints object
         self._constraints = NVSimScanConstraints(
-            axes=tuple(axes),
-            channels=tuple(ScannerChannel(name='NV Fluorescence', unit='c/s'),),
-            backscan_configurable=BackScanCapability(
-                frequency=self._back_scan_frequency_configurable,
-                resolution=self._back_scan_resolution_configurable,
-                available=self._back_scan_available
-            ),
-            linear_only=False,
-            requires_square_pixels=self._require_square_pixels,
-            max_history_length=10,
+            axis_objects=tuple(axes),
+            channel_objects=tuple([ScannerChannel(name='NV Fluorescence', unit='c/s')]),
+            back_scan_capability=back_scan_capability,
+            has_position_feedback=False,
+            square_px_only=self._require_square_pixels,
             spot_number=spot_number_constraint
         )
         
