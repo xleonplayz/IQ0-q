@@ -137,28 +137,21 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
             pos_accuracy = float(self._position_accuracy.get(axis, 1e-9))
             # Create the required ScalarConstraint objects
             position_constraint = ScalarConstraint(
-                min=min(ax_range),
-                max=max(ax_range),
-                step=pos_accuracy,
-                default=(min(ax_range) + max(ax_range)) / 2
+                default=(min(ax_range) + max(ax_range)) / 2,
+                bounds=(min(ax_range), max(ax_range))
             )
             step_constraint = ScalarConstraint(
-                min=pos_accuracy,
-                max=dist,
-                step=pos_accuracy,
-                default=pos_accuracy * 10
+                default=pos_accuracy * 10,
+                bounds=(pos_accuracy, dist)
             )
             resolution_constraint = ScalarConstraint(
-                min=resolution_range[0],
-                max=resolution_range[1],
-                step=1,
-                default=(resolution_range[0] + resolution_range[1]) // 2
+                default=(resolution_range[0] + resolution_range[1]) // 2,
+                bounds=(resolution_range[0], resolution_range[1]),
+                enforce_int=True
             )
             frequency_constraint = ScalarConstraint(
-                min=freq_range[0],
-                max=freq_range[1],
-                step=0.1,
-                default=(freq_range[0] + freq_range[1]) / 2
+                default=(freq_range[0] + freq_range[1]) / 2,
+                bounds=(freq_range[0], freq_range[1])
             )
             
             scanner_axis = ScannerAxis(
@@ -173,10 +166,9 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
         
         # Spot number constraint is the maximum number of spots to scan
         spot_number_constraint = ScalarConstraint(
-            min=1,
-            max=self._max_spot_number,
-            step=1,
-            default=self._max_spot_number // 2
+            default=self._max_spot_number // 2,
+            bounds=(1, self._max_spot_number),
+            enforce_int=True
         )
         
         # Create basic constraints object
@@ -274,21 +266,21 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
         # Check if resolution is within constraints
         for i, axis in enumerate(settings.axes):
             axis_obj = self._constraints.axes[axis]
-            if settings.resolution[i] < axis_obj.resolution.min or settings.resolution[i] > axis_obj.resolution.max:
+            if settings.resolution[i] < axis_obj.resolution.bounds[0] or settings.resolution[i] > axis_obj.resolution.bounds[1]:
                 raise ValueError(f"Resolution out of range for axis {axis}: {settings.resolution[i]}")
                 
         # Check if frequency is within constraints
         for axis, freq in settings.frequency.items():
             axis_obj = self._constraints.axes[axis]
-            if freq < axis_obj.frequency.min or freq > axis_obj.frequency.max:
+            if freq < axis_obj.frequency.bounds[0] or freq > axis_obj.frequency.bounds[1]:
                 raise ValueError(f"Frequency out of range for axis {axis}: {freq}")
                 
         # Check if number of spots exceeds maximum
         total_spots = 1
         for res in settings.resolution:
             total_spots *= res
-        if total_spots > self._constraints.spot_number.max:
-            raise ValueError(f"Total number of spots ({total_spots}) exceeds maximum ({self._constraints.spot_number.max})")
+        if total_spots > self._constraints.spot_number.bounds[1]:
+            raise ValueError(f"Total number of spots ({total_spots}) exceeds maximum ({self._constraints.spot_number.bounds[1]})")
             
         return True
             
@@ -434,9 +426,10 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
                     
                 # Check if position is within range
                 pos_constraint = self._constraints.axes[axis].position
-                if not pos_constraint.min <= pos <= pos_constraint.max:
+                if not pos_constraint.bounds[0] <= pos <= pos_constraint.bounds[1]:
                     self.log.warning(f'Position out of range for axis {axis}: {pos}')
-                    pos = pos_constraint.clip(pos)
+                    # Clip to valid range
+                    pos = max(pos_constraint.bounds[0], min(pos_constraint.bounds[1], pos))
                     
                 # Apply position
                 self._current_position[axis] = pos
