@@ -135,13 +135,39 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
             freq_range = tuple(self._frequency_ranges.get(axis, (0.1, 1.0)))
             resolution_range = tuple(self._resolution_ranges.get(axis, (2, 10000)))
             pos_accuracy = float(self._position_accuracy.get(axis, 1e-9))
+            # Create the required ScalarConstraint objects
+            position_constraint = ScalarConstraint(
+                min=min(ax_range),
+                max=max(ax_range),
+                step=pos_accuracy,
+                default=(min(ax_range) + max(ax_range)) / 2
+            )
+            step_constraint = ScalarConstraint(
+                min=pos_accuracy,
+                max=dist,
+                step=pos_accuracy,
+                default=pos_accuracy * 10
+            )
+            resolution_constraint = ScalarConstraint(
+                min=resolution_range[0],
+                max=resolution_range[1],
+                step=1,
+                default=(resolution_range[0] + resolution_range[1]) // 2
+            )
+            frequency_constraint = ScalarConstraint(
+                min=freq_range[0],
+                max=freq_range[1],
+                step=0.1,
+                default=(freq_range[0] + freq_range[1]) / 2
+            )
+            
             scanner_axis = ScannerAxis(
                 name=axis,
                 unit='m',
-                value_range=tuple(ax_range),
-                step_size=pos_accuracy,
-                resolution_range=resolution_range,
-                frequency_range=freq_range
+                position=position_constraint,
+                step=step_constraint,
+                resolution=resolution_constraint,
+                frequency=frequency_constraint
             )
             axes.append(scanner_axis)
         
@@ -170,8 +196,8 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
         
         # Reset position of the scanner
         for axis in [ax.name for ax in self._constraints.axes]:
-            pos_range = self._constraints.axes_by_name[axis].value_range
-            self._current_position[axis] = (pos_range[0] + pos_range[1]) / 2
+            pos_constraint = self._constraints.axes[axis].position
+            self._current_position[axis] = pos_constraint.default
         
         # Initialize simulated diamond with random NV centers
         volume = np.prod([(max(ax_range) - min(ax_range)) for ax_range in self._position_ranges.values()])
@@ -219,8 +245,8 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
             
             # Reset position of the scanner
             for axis in [ax.name for ax in self._constraints.axes]:
-                pos_range = self._constraints.axes_by_name[axis].value_range
-                self._current_position[axis] = (pos_range[0] + pos_range[1]) / 2
+                pos_constraint = self._constraints.axes[axis].position
+                self._current_position[axis] = pos_constraint.default
                 
             # Reset simulated scan data
             self._scan_data = None
@@ -247,13 +273,13 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
                 
         # Check if resolution is within constraints
         for i, axis in enumerate(settings.axes):
-            axis_obj = self._constraints.axes_by_name[axis]
+            axis_obj = self._constraints.axes[axis]
             if settings.resolution[i] < axis_obj.resolution.min or settings.resolution[i] > axis_obj.resolution.max:
                 raise ValueError(f"Resolution out of range for axis {axis}: {settings.resolution[i]}")
                 
         # Check if frequency is within constraints
         for axis, freq in settings.frequency.items():
-            axis_obj = self._constraints.axes_by_name[axis]
+            axis_obj = self._constraints.axes[axis]
             if freq < axis_obj.frequency.min or freq > axis_obj.frequency.max:
                 raise ValueError(f"Frequency out of range for axis {axis}: {freq}")
                 
@@ -407,10 +433,10 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
                     continue
                     
                 # Check if position is within range
-                ax_range = self._constraints.axes_by_name[axis].value_range
-                if not ax_range[0] <= pos <= ax_range[1]:
+                pos_constraint = self._constraints.axes[axis].position
+                if not pos_constraint.min <= pos <= pos_constraint.max:
                     self.log.warning(f'Position out of range for axis {axis}: {pos}')
-                    pos = max(ax_range[0], min(ax_range[1], pos))
+                    pos = pos_constraint.clip(pos)
                     
                 # Apply position
                 self._current_position[axis] = pos
