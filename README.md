@@ -1,117 +1,63 @@
-# SIMOS NV Simulator
+# qudi-iqo-modules with NV Center Simulator
+[![License: LGPL v3](https://img.shields.io/badge/License-LGPL%20v3-blue.svg)](https://www.gnu.org/licenses/lgpl-3.0)
 
-[![Documentation Status](https://github.com/xleonplayz/IQ0-q/actions/workflows/docs-to-wiki.yml/badge.svg)](https://github.com/xleonplayz/IQ0-q/wiki)
+---
+A collection of qudi measurement modules originally developed for experiments on color centers in 
+semiconductor materials, now enhanced with an integrated NV center simulator.
 
-A Python simulator for Nitrogen-Vacancy (NV) centers in diamond, integrating with SimOS.
+## NV Center Simulator Features
 
-## Overview
+The NV center simulator provides realistic quantum simulations of NV centers in diamond:
 
-This package provides a high-performance simulator for NV center quantum dynamics, focusing on:
+- Physically accurate simulation of quantum dynamics
+- ODMR, Rabi, T1, T2 experiments
+- Confocal microscopy simulation
+- Pulse sequence support for quantum control
+- Direct replacement for hardware modules
 
-1. Full quantum mechanical evolution using SimOS for accurate simulations
-2. High-level API for common quantum sensing and quantum information protocols
-3. Thread-safe operation for integration with control hardware
+## Using the Simulator
+
+### Standalone Mode
+
+Run simulations without the Qudi framework:
+
+```
+python -m src.qudi.hardware.nv_simulator
+```
+
+Optional arguments:
+- `--odmr`: Run only the ODMR simulation
+- `--rabi`: Run only the Rabi oscillation simulation
+- `--confocal`: Run only the confocal scan simulation
+- `--all`: Run all simulations (default)
+
+### With Qudi Framework
+
+1. Use the provided configuration file:
+   ```
+   cp src/qudi/hardware/nv_simulator/nv_simulator.cfg /path/to/your/qudi/config/
+   ```
+
+2. Launch Qudi with this configuration:
+   ```
+   python -m qudi -c /path/to/your/qudi/config/nv_simulator.cfg
+   ```
+
+For more details, see [NV Simulator Documentation](/src/qudi/hardware/nv_simulator/README.md).
+
 
 ## Installation
+For installation instructions please refer to our
+[iqo-modules installation guide](https://github.com/Ulm-IQO/qudi-iqo-modules/blob/main/docs/installation_guide.md).
 
-For development:
 
-```bash
-# Clone the repository
-git clone https://github.com/your-org/simos-nv-simulator.git
-cd simos-nv-simulator
+## More information
+The best starting point for further researching the qudi documentation is the [readme file](https://github.com/Ulm-IQO/qudi-core) of the qudi-core repo.
 
-# Install in development mode
-pip install -e .
-```
+## Forum
+For questions concerning qudi or the iqo-modules, there is a [forum](https://github.com/Ulm-IQO/qudi-core/discussions) to discuss with the qudi community. Feel free to ask!
+If you found a bug and located it already, please note GitHub's [issue tracking](https://github.com/Ulm-IQO/qudi-iqo-modules/issues) feature.
 
-## Dependencies
-
-- Python 3.9+
-- NumPy
-- SciPy
-- SimOS (Simulation of Optically-addressable Spins)
-
-The simulator uses a local version of SimOS from the `simos_repo` directory instead of requiring the SimOS package to be installed. This approach allows for easier development and modification of both the simulator and SimOS code.
-
-### Testing Without SimOS
-
-For basic testing without a fully functional SimOS installation, the test suite includes mock implementations that allow the basic functionality tests to pass without requiring the actual quantum simulation capabilities.
-
-## Usage
-
-Basic usage example:
-
-```python
-from simos_nv_simulator.core.physical_model import PhysicalNVModel
-
-# Create NV model with default parameters
-nv = PhysicalNVModel()
-
-# Set magnetic field (in Tesla)
-nv.set_magnetic_field([0, 0, 0.005])
-
-# Apply microwave drive
-nv.apply_microwave(frequency=2.87e9, power=-20.0, on=True)
-
-# Run simulation for 1 microsecond
-nv.simulate(dt=1e-9, steps=1000)
-
-# Get fluorescence count rate
-counts = nv.get_fluorescence()
-```
-
-## Testing
-
-Run the tests with:
-
-```bash
-pytest
-```
-
-Or to run a specific test file:
-
-```bash
-pytest tests/core/test_physical_model.py
-```
-
-## Documentation
-
-The project documentation is available in the GitHub wiki and can be built locally:
-
-```bash
-# Install documentation dependencies
-pip install sphinx sphinx-rtd-theme myst-parser
-sudo apt-get install doxygen graphviz  # or appropriate commands for your OS
-
-# Build documentation
-cd docs
-doxygen Doxyfile
-sphinx-build -b html . _build/html
-```
-
-The documentation covers:
-- Detailed explanation of the physical model
-- API reference and usage examples
-- Code architecture and design principles
-- Mathematical foundation of quantum simulations
-
-Documentation is automatically published to the GitHub wiki when changes are pushed to the main branch.
-
-## Physical Model
-
-The simulator implements a complete quantum mechanical model of NV centers, including:
-
-- Zero-field splitting (~2.87 GHz)
-- Zeeman interaction with magnetic fields
-- Strain effects on energy levels
-- Hyperfine interaction with nitrogen nuclear spin
-- Optical cycling and spin polarization
-- Microwave driving with proper RWA
-- Quantum decoherence processes (T1, T2, T2*)
-
-For detailed information on the physical model, see the [documentation](docs/physical_model.md).
-
-## License
-
-[MIT License](LICENSE)
+## Copyright
+Check [AUTHORS.md](AUTHORS.md) for a list of authors and the git history for their individual
+contributions.
