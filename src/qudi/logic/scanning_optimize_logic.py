@@ -105,8 +105,10 @@ class ScanningOptimizeLogic(LogicBase):
         self._avail_axes = tuple(axes.values())
         self._set_default_scan_sequence()
 
-        if self._data_channel is None:
+        if self._data_channel is None or self._data_channel not in [ch.name for ch in channels.values()]:
+            # Default to first available channel
             self._data_channel = tuple(channels.values())[0].name
+            self.log.info(f"Setting data channel to '{self._data_channel}'")
 
         self._sequence_index = 0
         self._optimal_position = dict()

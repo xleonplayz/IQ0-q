@@ -687,8 +687,10 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
                 # Calculate the simulated signal
                 signal = self._update_simulated_signal()
                 
-                # Store the signal in the scan data
-                self._scan_data.data['fluorescence'][y_idx, x_idx] = signal
+                # Store the signal in the scan data for all channels
+                # First check if key exists in data dictionary
+                for channel_name in self._scan_data.data:
+                    self._scan_data.data[channel_name][y_idx, x_idx] = signal
                 
                 # Increment pixel counter
                 self._last_forward_pixel += 1
@@ -713,11 +715,14 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
                     # Set the current position (already set by forward scan, so no need to update)
                     
                     # Calculate the simulated signal (add some different noise)
-                    signal = self._scan_data.data['fluorescence'][y_idx, x_idx]
+                    # Get the signal from any channel - they all have the same value
+                    first_channel = list(self._scan_data.data.keys())[0]
+                    signal = self._scan_data.data[first_channel][y_idx, x_idx]
                     signal = signal + np.random.normal(0, signal * 0.05)  # 5% noise for backward scan
                     
-                    # Store the signal in the back scan data
-                    self._back_scan_data.data['fluorescence'][y_idx, x_idx] = signal
+                    # Store the signal in the back scan data for all channels
+                    for channel_name in self._back_scan_data.data:
+                        self._back_scan_data.data[channel_name][y_idx, x_idx] = signal
                     
                     # Increment pixel counter
                     self._last_backward_pixel += 1
