@@ -195,12 +195,20 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
         self._back_scan_settings = None
         self._simulated_diamond = None
         
-    def get_constraints(self):
+    @property
+    def constraints(self):
         """Get hardware constraints/limitations.
         
         @return ScanConstraints: Scanner constraints object
         """
         return self._constraints
+        
+    def get_constraints(self):
+        """Legacy method for backward compatibility.
+        
+        @return ScanConstraints: Scanner constraints object
+        """
+        return self.constraints
         
     def reset(self):
         """Reset the hardware settings to the default state."""
@@ -220,6 +228,54 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
             self._scan_settings = None
             self._back_scan_settings = None
             
+    def validate_scan_settings(self, settings):
+        """Validate the scan settings against the constraints.
+        
+        @param ScanSettings settings: Settings object to validate
+        
+        @return bool: True if settings are valid
+        """
+        # Check if settings axes are valid
+        for axis in settings.axes:
+            if axis not in [ax.name for ax in self._constraints.axes]:
+                raise ValueError(f"Invalid axis: {axis}")
+                
+        # Check if settings channels are valid
+        for channel in settings.channels:
+            if channel not in [ch.name for ch in self._constraints.channels]:
+                raise ValueError(f"Invalid channel: {channel}")
+                
+        # Check if resolution is within constraints
+        for i, axis in enumerate(settings.axes):
+            axis_obj = self._constraints.axes_by_name[axis]
+            if settings.resolution[i] < axis_obj.resolution.min or settings.resolution[i] > axis_obj.resolution.max:
+                raise ValueError(f"Resolution out of range for axis {axis}: {settings.resolution[i]}")
+                
+        # Check if frequency is within constraints
+        for axis, freq in settings.frequency.items():
+            axis_obj = self._constraints.axes_by_name[axis]
+            if freq < axis_obj.frequency.min or freq > axis_obj.frequency.max:
+                raise ValueError(f"Frequency out of range for axis {axis}: {freq}")
+                
+        # Check if number of spots exceeds maximum
+        total_spots = 1
+        for res in settings.resolution:
+            total_spots *= res
+        if total_spots > self._constraints.spot_number.max:
+            raise ValueError(f"Total number of spots ({total_spots}) exceeds maximum ({self._constraints.spot_number.max})")
+            
+        return True
+            
+    def calculate_backwards_scan_settings(self, settings):
+        """Calculate the back scan settings based on the forward scan settings.
+        
+        @param ScanSettings settings: Settings object for the forward scan
+        
+        @return ScanSettings: Settings object for the backward scan
+        """
+        # For simplicity, back scan uses the same settings as forward scan
+        return settings
+    
     def configure_scan(self, settings):
         """Configure the scanner with scan settings for the next scan to execute.
         
@@ -237,7 +293,7 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
             
             # Apply settings
             self._scan_settings = settings
-            if settings.backward_scan_enabled:
+            if hasattr(settings, 'backward_scan_enabled') and settings.backward_scan_enabled:
                 self._back_scan_settings = self.calculate_backwards_scan_settings(settings)
             else:
                 self._back_scan_settings = None
@@ -363,6 +419,54 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
             self._update_simulated_signal()
                 
             return self._current_position.copy()
+            
+    def move_absolute(self, position, velocity=None, blocking=False):
+        """Move the scanning probe to an absolute position.
+        
+        @param Dict[str, float] position: Position to move to for each axis
+        @param float velocity: Optional velocity to use
+        @param bool blocking: Whether to wait for the movement to complete
+        
+        @return Dict[str, float]: Actual position reached
+        """
+        with self._thread_lock:
+            if self.module_state() != 'idle':
+                self.log.error('Cannot move while scan is running')
+                return self._current_position.copy()
+                
+            # This is equivalent to set_position for the simulator
+            return self.set_position(position)
+    
+    def move_relative(self, distance, velocity=None, blocking=False):
+        """Move the scanning probe by a relative distance.
+        
+        @param Dict[str, float] distance: Distance to move for each axis
+        @param float velocity: Optional velocity to use
+        @param bool blocking: Whether to wait for the movement to complete
+        
+        @return Dict[str, float]: Actual position reached
+        """
+        with self._thread_lock:
+            if self.module_state() != 'idle':
+                self.log.error('Cannot move while scan is running')
+                return self._current_position.copy()
+                
+            # Calculate new position
+            new_position = self._current_position.copy()
+            for axis, dist in distance.items():
+                if axis in new_position:
+                    new_position[axis] += dist
+                    
+            # Set new position
+            return self.set_position(new_position)
+            
+    def get_target(self):
+        """Get the current target position of the scanning probe.
+        
+        @return Dict[str, float]: Current target position for each axis
+        """
+        # For the simulator, target position is the same as current position
+        return self._current_position.copy()
             
     def get_target_position(self):
         """Get the target position of the scanning probe defined by the current scanner settings.
@@ -594,3 +698,85 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
         """
         with self._thread_lock:
             return self._back_scan_data
+            
+    @property
+    def scan_settings(self):
+        """Property returning all parameters needed for a 1D or 2D scan. Returns None if not configured.
+        
+        @return ScanSettings: Current scan settings or None
+        """
+        with self._thread_lock:
+            return self._scan_settings
+            
+    @property
+    def back_scan_settings(self):
+        """Property returning all parameters of the backwards scan. Returns None if not configured or not available.
+        
+        @return ScanSettings: Current back scan settings or None
+        """
+        with self._thread_lock:
+            return self._back_scan_settings
+            
+    def configure_back_scan(self, settings):
+        """Configure the hardware with all parameters of the backwards scan.
+        Raise an exception if the settings are invalid and do not comply with the hardware constraints.
+        
+        @param ScanSettings settings: ScanSettings instance holding all parameters for the back scan
+        
+        @return ScanSettings: Actual applied back scan settings
+        """
+        with self._thread_lock:
+            if self.module_state() != 'idle':
+                self.log.error('Cannot configure scanner while scan is running. Stop scan first.')
+                return self._back_scan_settings
+                
+            # Check if back scan is available
+            if not self._back_scan_available:
+                self.log.error('Back scan is not available on this hardware.')
+                return None
+                
+            # Check if scan settings are valid
+            if self._scan_settings is None:
+                self.log.error('Cannot configure back scan before configuring the forward scan.')
+                return None
+                
+            # Validate settings against constraints
+            self.validate_scan_settings(settings)
+            
+            # Check back scan settings against forward scan
+            if settings.axes != self._scan_settings.axes:
+                self.log.error('Back scan must use the same axes as the forward scan.')
+                return self._back_scan_settings
+                
+            if settings.range != self._scan_settings.range:
+                self.log.error('Back scan must use the same range as the forward scan.')
+                return self._back_scan_settings
+                
+            # Apply settings
+            self._back_scan_settings = settings
+            
+            # Reset scan data
+            self._back_scan_data = None
+            
+            return self._back_scan_settings
+            
+    def emergency_stop(self):
+        """Immediately stop all hardware movement.
+        
+        @return bool: Emergency stop successful
+        """
+        with self._thread_lock:
+            # For the simulator, this is the same as stop_scan
+            if self.module_state() == 'idle':
+                self.log.warning('No scan is running. Emergency stop not needed.')
+                return True
+                
+            # Stop scan timer
+            if self._update_timer is not None and self._update_timer.isActive():
+                self._update_timer.stop()
+                
+            # Unlock module state
+            self.module_state.unlock()
+            
+            self.log.info('Emergency stop executed')
+            return True
