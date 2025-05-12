@@ -62,6 +62,10 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
     _frame_size_limits = ConfigOption('frame_size_limits', default=[1, 1e8], missing='warn')
     _channel_units = ConfigOption('channel_units', default={'APD counts': 'c/s', 'Photodiode': 'V'}, missing='warn')
     
+    # Connectors
+    from qudi.core.connector import Connector
+    simulator = Connector(interface='QudiFacade')
+    
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         

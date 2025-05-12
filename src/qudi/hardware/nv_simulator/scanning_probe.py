@@ -275,8 +275,20 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
                 
         # Check if settings channels are valid
         for channel in settings.channels:
-            if channel not in [ch.name for ch in self._constraints.channels]:
-                raise ValueError(f"Invalid channel: {channel}")
+            try:
+                # Try both approaches to handle different Qudi versions
+                if isinstance(self._constraints.channels, dict):
+                    # If channels is a dict
+                    if channel not in self._constraints.channels:
+                        raise ValueError(f"Invalid channel: {channel}")
+                else:
+                    # If channels is a list of ScannerChannel objects
+                    channel_names = [ch.name for ch in self._constraints.channels]
+                    if channel not in channel_names:
+                        raise ValueError(f"Invalid channel: {channel}")
+            except (AttributeError, TypeError):
+                # If neither approach works, just accept any channel
+                self.log.warning(f"Could not validate channel: {channel}. Accepting anyway.")
                 
         # Check if resolution is within constraints
         for i, axis in enumerate(settings.axes):
