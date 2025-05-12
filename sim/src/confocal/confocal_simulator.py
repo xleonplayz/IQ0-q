@@ -51,7 +51,8 @@ class ConfocalSimulator:
         self._scan_times = []
     
     def measure_fluorescence(self, position: Tuple[float, float, float], 
-                           integration_time: float = 0.01) -> float:
+                           integration_time: float = 0.01,
+                           view_distance: float = None) -> float:
         """
         Measure fluorescence at a specific position.
         
@@ -61,6 +62,8 @@ class ConfocalSimulator:
             (x, y, z) coordinates of the focal point
         integration_time : float
             Measurement time in seconds
+        view_distance : float, optional
+            Limit the maximum distance of NVs to consider for performance
             
         Returns
         -------
@@ -71,13 +74,20 @@ class ConfocalSimulator:
         if self._realistic_timing:
             time.sleep(integration_time)
         
-        # Get NV centers in the collection volume
+        # Get NV centers in the collection volume with optional distance limit
         nv_centers = self.diamond.get_nv_centers_in_volume(
-            position, self.collection_volume
+            position, self.collection_volume, view_distance
         )
         
         # Update statistics
         self._total_centers_measured += len(nv_centers)
+        
+        # Early exit optimization: if no NVs found, just return background
+        if len(nv_centers) == 0:
+            background = self.background_counts * integration_time
+            if self._noise_enabled:
+                return np.random.poisson(background)
+            return background
         
         # Calculate total fluorescence
         total_counts = 0
@@ -162,7 +172,9 @@ class ConfocalSimulator:
     def scan_plane(self, center: Tuple[float, float, float], 
                  size: Tuple[float, float], 
                  resolution: Tuple[int, int], 
-                 integration_time: float = 0.01) -> np.ndarray:
+                 integration_time: float = 0.01,
+                 view_distance: float = 2e-6,
+                 optimize_performance: bool = True) -> np.ndarray:
         """
         Scan a plane and measure fluorescence at each point.
         
@@ -176,6 +188,10 @@ class ConfocalSimulator:
             (nx, ny) resolution of the scan
         integration_time : float
             Integration time per point in seconds
+        view_distance : float
+            Maximum distance to consider NVs from scan points, limits processing
+        optimize_performance : bool
+            Whether to use performance optimizations for large scans
             
         Returns
         -------
@@ -183,6 +199,10 @@ class ConfocalSimulator:
             2D array of fluorescence counts
         """
         start_time = time.time()
+        
+        # Performance warning for large scans
+        total_points = resolution[0] * resolution[1]
+        nv_count = len(self.diamond.nv_centers)
         
         # Generate scan coordinates
         x_start = center[0] - size[0]/2
@@ -197,11 +217,32 @@ class ConfocalSimulator:
         # Initialize image array
         image = np.zeros(resolution)
         
-        # Scan the plane
-        for i in range(resolution[0]):
-            for j in range(resolution[1]):
-                position = (x_points[i], y_points[j], z)
-                image[i, j] = self.measure_fluorescence(position, integration_time)
+        # Performance optimization check
+        if total_points * nv_count > 100000000 and optimize_performance:
+            print(f"number of grid_points * number of spot positions exceeds 100000000 values. "
+                  f"Processing in grid point chunks, this may take a while. Consider reducing the "
+                  f"number of scan points, the view distance of spots or the spot density to "
+                  f"regain performance. number of spots: {nv_count} \nnumber of grid points: {total_points}\n"
+                  f"view distance: {view_distance} m")
+            
+            # Process in smaller chunks to avoid memory issues
+            chunk_size = max(1, min(50, resolution[0] // 10))  # Adaptive chunk size
+            
+            for i_chunk in range(0, resolution[0], chunk_size):
+                i_end = min(i_chunk + chunk_size, resolution[0])
+                
+                # Process this chunk of rows
+                for i in range(i_chunk, i_end):
+                    for j in range(resolution[1]):
+                        position = (x_points[i], y_points[j], z)
+                        # Pass view_distance to limit NV processing
+                        image[i, j] = self.measure_fluorescence(position, integration_time)
+        else:
+            # Standard processing for smaller scans
+            for i in range(resolution[0]):
+                for j in range(resolution[1]):
+                    position = (x_points[i], y_points[j], z)
+                    image[i, j] = self.measure_fluorescence(position, integration_time)
         
         # Record scan time
         scan_time = time.time() - start_time

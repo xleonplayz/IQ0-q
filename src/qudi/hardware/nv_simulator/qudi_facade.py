@@ -28,6 +28,8 @@ from pathlib import Path
 
 from qudi.core.module import Base
 from qudi.core.configoption import ConfigOption
+from qudi.interface.microwave_interface import MicrowaveInterface, MicrowaveConstraints
+from qudi.util.enums import SamplingOutputMode
 
 # Direct import from the physical location
 # This is a hard-coded approach that should work regardless of installation
@@ -294,8 +296,9 @@ class PulseController:
         return np.array(results)
 
 
-class QudiFacade(Base):
-    """Central manager for all simulator resources used by Qudi interfaces."""
+class QudiFacade(MicrowaveInterface):
+    """Central manager for all simulator resources used by Qudi interfaces.
+    Also implements MicrowaveInterface for ODMR experiments."""
     
     # Config options using proper Qudi format
     _magnetic_field = ConfigOption('magnetic_field', default=[0, 0, 0], missing='warn')
@@ -355,6 +358,24 @@ class QudiFacade(Base):
         self.pulse_controller = PulseController(self.nv_model)
         self.confocal_simulator = ConfocalSimulator(self.nv_model)
         
+        # Microwave interface implementation state variables
+        self._is_scanning = False
+        self._cw_power = 0.0
+        self._cw_frequency = 2.87e9  # Default to zero-field splitting
+        self._scan_power = 0.0
+        self._scan_frequencies = None
+        self._scan_mode = SamplingOutputMode.JUMP_LIST
+        self._scan_sample_rate = 100.0
+        
+        # Create microwave constraints
+        self._constraints = MicrowaveConstraints(
+            power_limits=(-60, 10),
+            frequency_limits=(2.7e9, 3.1e9),  # Range around NV zero-field splitting
+            scan_size_limits=(2, 1001),
+            sample_rate_limits=(0.1, 1000),
+            scan_modes=(SamplingOutputMode.JUMP_LIST, SamplingOutputMode.EQUIDISTANT_SWEEP)
+        )
+        
         # State variables
         self.is_running = False
         
@@ -400,3 +421,132 @@ class QudiFacade(Base):
         self.confocal_simulator.set_position(0, 0, 0)
         
         self.log.info("NV Simulator reset to initial state")
+
+    # MicrowaveInterface implementation
+    
+    @property
+    def constraints(self) -> MicrowaveConstraints:
+        """The microwave constraints object for this device."""
+        return self._constraints
+
+    @property
+    def is_scanning(self) -> bool:
+        """Flag indicating if a scan is running at the moment."""
+        return self._is_scanning
+
+    @property
+    def cw_power(self) -> float:
+        """The currently configured CW microwave power in dBm."""
+        return self._cw_power
+
+    @property
+    def cw_frequency(self) -> float:
+        """The currently set CW microwave frequency in Hz."""
+        return self._cw_frequency
+
+    @property
+    def scan_power(self) -> float:
+        """The currently configured microwave power in dBm used for scanning."""
+        return self._scan_power
+
+    @property
+    def scan_frequencies(self):
+        """The currently configured microwave frequencies used for scanning."""
+        return self._scan_frequencies
+
+    @property
+    def scan_mode(self) -> SamplingOutputMode:
+        """The currently configured scan mode Enum."""
+        return self._scan_mode
+
+    @property
+    def scan_sample_rate(self) -> float:
+        """The currently configured scan sample rate in Hz."""
+        return self._scan_sample_rate
+
+    def off(self) -> None:
+        """Switches off any microwave output (both scan and CW)."""
+        self.microwave_controller.off()
+        self._is_scanning = False
+        
+        if self.module_state() == 'locked':
+            self.module_state.unlock()
+
+    def set_cw(self, frequency: float, power: float) -> None:
+        """Configure the CW microwave output."""
+        # Validate parameters against constraints
+        self._assert_cw_parameters_args(frequency, power)
+        
+        # Update internal state
+        self._cw_frequency = frequency
+        self._cw_power = power
+        
+        # Update the controller if we're in CW mode and running
+        if self.module_state() == 'locked' and not self._is_scanning:
+            self.microwave_controller.set_frequency(frequency)
+            self.microwave_controller.set_power(power)
+
+    def cw_on(self) -> None:
+        """Switches on the CW microwave output."""
+        # Check if we're idle
+        if self.module_state() != 'idle':
+            self.log.error('Cannot turn on CW microwave. Microwave output already active.')
+            return
+        
+        # Configure and turn on the microwave
+        self.microwave_controller.set_frequency(self._cw_frequency)
+        self.microwave_controller.set_power(self._cw_power)
+        self.microwave_controller.on()
+        
+        # Update state
+        self._is_scanning = False
+        self.module_state.lock()
+
+    def configure_scan(self, power: float, frequencies, mode: SamplingOutputMode, sample_rate: float) -> None:
+        """Configure a frequency scan."""
+        # Validate the parameters
+        self._assert_scan_configuration_args(power, frequencies, mode, sample_rate)
+        
+        # Store the configuration
+        self._scan_power = power
+        self._scan_mode = mode
+        self._scan_sample_rate = sample_rate
+        
+        # Convert frequencies to the correct format if needed
+        if mode == SamplingOutputMode.EQUIDISTANT_SWEEP:
+            start, stop, num_points = frequencies
+            self._scan_frequencies = np.linspace(start, stop, int(num_points))
+        else:  # JUMP_LIST
+            self._scan_frequencies = np.array(frequencies)
+
+    def start_scan(self) -> None:
+        """Switches on the preconfigured microwave scanning."""
+        # Check if we're idle and have configured frequencies
+        if self.module_state() != 'idle':
+            self.log.error('Cannot start frequency scan. Microwave output already active.')
+            return
+            
+        if self._scan_frequencies is None or len(self._scan_frequencies) == 0:
+            self.log.error('No scan frequencies configured. Cannot start scan.')
+            return
+            
+        # Start with the first frequency in the scan
+        first_freq = self._scan_frequencies[0]
+        self.microwave_controller.set_frequency(first_freq)
+        self.microwave_controller.set_power(self._scan_power)
+        self.microwave_controller.on()
+        
+        # Update state
+        self._is_scanning = True
+        self.module_state.lock()
+
+    def reset_scan(self) -> None:
+        """Reset currently running scan and return to start frequency."""
+        if not self._is_scanning:
+            return
+            
+        # Reset to the first frequency
+        if len(self._scan_frequencies) > 0:
+            first_freq = self._scan_frequencies[0]
+            self.microwave_controller.set_frequency(first_freq)
+            self.microwave_controller.set_power(self._scan_power)

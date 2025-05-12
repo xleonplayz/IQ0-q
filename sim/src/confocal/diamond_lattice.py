@@ -90,7 +90,8 @@ class DiamondLattice:
             self.nv_centers.append(nv)
     
     def get_nv_centers_in_volume(self, center: Tuple[float, float, float], 
-                               dimensions: Tuple[float, float, float]) -> List[Dict[str, Any]]:
+                               dimensions: Tuple[float, float, float], 
+                               view_distance: Optional[float] = None) -> List[Dict[str, Any]]:
         """
         Get all NV centers in a specified volume around a point.
         
@@ -100,6 +101,9 @@ class DiamondLattice:
             (x, y, z) coordinates of the center of the volume
         dimensions : tuple
             (width, height, depth) of the volume in meters
+        view_distance : float, optional
+            Maximum distance to consider NVs from the center. Limits the number of NVs
+            to improve performance for large simulations.
             
         Returns
         -------
@@ -110,13 +114,29 @@ class DiamondLattice:
         y_min, y_max = center[1] - dimensions[1]/2, center[1] + dimensions[1]/2
         z_min, z_max = center[2] - dimensions[2]/2, center[2] + dimensions[2]/2
         
+        # If view_distance is provided, apply it as an additional constraint
+        use_distance_limit = view_distance is not None
+        
+        # Convert center to numpy array for distance calculation
+        center_np = np.array(center)
+        
         centers = []
         for nv in self.nv_centers:
             pos = nv['position']
+            
+            # First check bounding box (fast rejection)
             if (x_min <= pos[0] <= x_max and 
                 y_min <= pos[1] <= y_max and 
                 z_min <= pos[2] <= z_max):
-                centers.append(nv)
+                
+                # If view_distance is set, also check distance constraint
+                if use_distance_limit:
+                    pos_np = np.array(pos)
+                    distance = np.linalg.norm(pos_np - center_np)
+                    if distance <= view_distance:
+                        centers.append(nv)
+                else:
+                    centers.append(nv)
         
         return centers
     
