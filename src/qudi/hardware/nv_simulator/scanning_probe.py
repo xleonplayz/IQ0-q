@@ -194,7 +194,7 @@ class NVSimScanningProbe(CoordinateTransformMixin, ScanningProbeInterface):
         # Create basic constraints object
         self._constraints = NVSimScanConstraints(
             axis_objects=tuple(axes),
-            channel_objects=tuple([ScannerChannel(name='fluorescence', unit='c/s')]),
+            channel_objects=tuple([ScannerChannel(name='NV Fluorescence', unit='c/s')]),
             back_scan_capability=back_scan_capability,
             has_position_feedback=False,
             square_px_only=self._require_square_pixels,
