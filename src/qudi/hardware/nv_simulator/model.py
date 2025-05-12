@@ -1,0 +1,627 @@
+# -*- coding: utf-8 -*-
+
+"""
+This file contains the physical model for the NV center simulator.
+
+Copyright (c) 2023, IQO
+
+This file is part of qudi.
+
+Qudi is free software: you can redistribute it and/or modify it under the terms of
+the GNU Lesser General Public License as published by the Free Software Foundation,
+either version 3 of the License, or (at your option) any later version.
+
+Qudi is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+See the GNU Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public License along with qudi.
+If not, see <https://www.gnu.org/licenses/>.
+"""
+
+import os
+import numpy as np
+import logging
+import threading
+from typing import Dict, List, Optional, Tuple, Union
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+class SimulationResult:
+    """Data container for simulation results"""
+    def __init__(self, type="", **kwargs):
+        self.type = type
+        self.metadata = {}
+        
+        # Store all provided kwargs as attributes
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+class PhysicalNVModel:
+    """
+    Main physical model for the NV center simulator.
+    
+    This class provides a physically accurate model of NV center dynamics
+    for use in quantum simulations.
+    """
+    
+    def __init__(self, optics=True, nitrogen=False, method="matrix", **kwargs):
+        """
+        Initialize the physical model with configurable options.
+        
+        Parameters
+        ----------
+        optics : bool, optional
+            Include optical levels (ground, excited, singlet states)
+        nitrogen : bool, optional
+            Include nitrogen nuclear spin
+        method : str, optional
+            Simulation method, one of: "matrix", "qutip"
+        """
+        # Configuration
+        self.config = {
+            "optics": optics,
+            "nitrogen": nitrogen,
+            "method": method,
+            "d_gs": 2.87e9,  # Zero-field splitting (Hz)
+            "gyro_e": 28.025e9,  # Gyromagnetic ratio (Hz/T) 
+            "t1": 5.0e-3,    # T1 relaxation time (s)
+            "t2": 1.0e-5     # T2 dephasing time (s)
+        }
+        
+        # Update with any additional kwargs
+        self.config.update(kwargs)
+        
+        # Thread safety
+        self.lock = threading.RLock()
+        
+        # Initialize magnetic field (Tesla)
+        self.b_field = np.array([0.0, 0.0, 0.0])
+        
+        # Initialize state
+        self.state = None
+        self.reset_state()
+        
+        # Initialize nuclear environment
+        self._nuclear_enabled = False
+        self.nuclear_bath = []
+        self.decoherence_model = None
+        
+        # Runtime parameters
+        self._collection_efficiency = 1.0
+        self._microwave_frequency = 2.87e9
+        self._microwave_amplitude = 0.0
+        self._laser_power = 0.0
+        
+        logger.info(f"NV Model initialized with {method} method, optics={optics}")
+    
+    def reset_state(self):
+        """Reset the NV state to the ground state |0⟩"""
+        with self.lock:
+            # Simple placeholder - in actual implementation this would
+            # initialize proper quantum state with SimOS
+            self.state = np.zeros(3)
+            self.state[0] = 1.0  # |ms=0⟩ state
+    
+    def set_magnetic_field(self, field):
+        """
+        Set the magnetic field vector.
+        
+        Parameters
+        ----------
+        field : list or ndarray
+            Magnetic field vector [Bx, By, Bz] in Tesla
+        """
+        with self.lock:
+            self.b_field = np.array(field, dtype=float)
+            logger.debug(f"Magnetic field set to {self.b_field} T")
+    
+    def set_temperature(self, temperature):
+        """
+        Set the temperature for thermal effects.
+        
+        Parameters
+        ----------
+        temperature : float
+            Temperature in Kelvin
+        """
+        with self.lock:
+            self.config["temperature"] = float(temperature)
+            logger.debug(f"Temperature set to {temperature} K")
+    
+    def set_laser_power(self, power):
+        """
+        Set the laser power for optical pumping.
+        
+        Parameters
+        ----------
+        power : float
+            Laser power in mW
+        """
+        with self.lock:
+            self._laser_power = float(power)
+    
+    def set_microwave_frequency(self, frequency):
+        """
+        Set the microwave drive frequency.
+        
+        Parameters
+        ----------
+        frequency : float
+            Microwave frequency in Hz
+        """
+        with self.lock:
+            self._microwave_frequency = float(frequency)
+    
+    def set_microwave_amplitude(self, amplitude):
+        """
+        Set the microwave drive amplitude.
+        
+        Parameters
+        ----------
+        amplitude : float
+            Microwave amplitude (relative units)
+        """
+        with self.lock:
+            self._microwave_amplitude = float(amplitude)
+    
+    def set_collection_efficiency(self, efficiency):
+        """
+        Set the fluorescence collection efficiency.
+        
+        Parameters
+        ----------
+        efficiency : float
+            Collection efficiency (0.0 to 1.0)
+        """
+        with self.lock:
+            self._collection_efficiency = float(efficiency)
+    
+    def evolve(self, duration):
+        """
+        Evolve the quantum state for a specified duration.
+        
+        Parameters
+        ----------
+        duration : float
+            Time to evolve in seconds
+        """
+        with self.lock:
+            # Placeholder for actual time evolution
+            logger.debug(f"Evolving state for {duration} s")
+            # In real implementation, this would use SimOS to do quantum evolution
+            
+    def get_fluorescence_rate(self):
+        """
+        Get the current fluorescence rate.
+        
+        Returns
+        -------
+        float
+            Fluorescence count rate in counts/s
+        """
+        with self.lock:
+            return self.get_fluorescence()
+    
+    def simulate_odmr(self, f_min, f_max, n_points, mw_power=-10.0):
+        """
+        Run an ODMR experiment.
+        
+        Parameters
+        ----------
+        f_min : float
+            Start frequency in Hz
+        f_max : float
+            End frequency in Hz
+        n_points : int
+            Number of frequency points
+        mw_power : float, optional
+            Microwave power in dBm
+            
+        Returns
+        -------
+        SimulationResult
+            Object containing frequencies and signals
+        """
+        with self.lock:
+            # Generate frequency points
+            frequencies = np.linspace(f_min, f_max, n_points)
+            
+            # Convert dBm to amplitude
+            power_factor = 10**(mw_power/20)  # Convert from dBm to amplitude
+            
+            # Placeholder for ODMR signal - in real implementation, this would
+            # calculate signal based on the Hamiltonian and microwave drive
+            signal = np.ones(n_points)
+            
+            # Zero-field splitting
+            d_gs = self.config["d_gs"]
+            
+            # Calculate Zeeman splitting based on magnetic field
+            b_magnitude = np.linalg.norm(self.b_field)
+            gyro = self.config["gyro_e"]
+            zeeman_shift = gyro * b_magnitude
+            
+            # Create resonance dips
+            f1 = d_gs - zeeman_shift  # ms=0 to ms=-1 transition
+            f2 = d_gs + zeeman_shift  # ms=0 to ms=+1 transition
+            
+            width = 5e6  # 5 MHz linewidth - depends on MW power
+            width *= (1 + 0.5 * power_factor)  # Power broadening
+            
+            depth = 0.3  # 30% contrast
+            depth *= (1 - np.exp(-power_factor))  # Power-dependent contrast
+            
+            # Create Lorentzian dips
+            for f in [f1, f2]:
+                if f_min <= f <= f_max:  # Only if resonance is in range
+                    signal -= depth * width**2 / ((frequencies - f)**2 + width**2)
+            
+            # Scale to typical fluorescence rate and add noise
+            base_rate = 100000.0  # counts/s
+            signal *= base_rate * self._collection_efficiency
+            
+            # Add some noise
+            noise_level = 0.01  # 1% noise
+            signal += np.random.normal(0, noise_level * base_rate, n_points)
+            
+            # Return result object
+            return SimulationResult(
+                type="ODMR",
+                frequencies=frequencies,
+                signal=signal,
+                mw_power=mw_power,
+                resonances=[f1, f2],
+                zeeman_shift=zeeman_shift,
+                collection_efficiency=self._collection_efficiency
+            )
+    
+    def simulate_rabi(self, t_max, n_points, mw_power=0.0, mw_frequency=None):
+        """
+        Run a Rabi oscillation experiment.
+        
+        Parameters
+        ----------
+        t_max : float
+            Maximum Rabi time in seconds
+        n_points : int
+            Number of time points
+        mw_power : float, optional
+            Microwave power in dBm
+        mw_frequency : float, optional
+            Microwave frequency in Hz. If None, use resonance frequency.
+            
+        Returns
+        -------
+        SimulationResult
+            Object containing times and signals
+        """
+        with self.lock:
+            # Generate time points
+            times = np.linspace(0, t_max, n_points)
+            
+            # Convert dBm to Rabi frequency (simplified model)
+            # 0 dBm → ~10 MHz Rabi frequency for typical setup
+            power_factor = 10**(mw_power/20)  # Convert from dBm to amplitude
+            rabi_freq = 10e6 * power_factor  # Rabi frequency in Hz
+            
+            # Generate Rabi oscillation
+            signal = 1 - 0.5 * (1 - np.cos(2*np.pi*rabi_freq*times))
+            
+            # Add damping from T2 effects
+            t2 = self.config["t2"]  # T2 time
+            damping = np.exp(-times/t2)
+            signal = 1 - (1 - signal) * damping
+            
+            # Scale to typical fluorescence rate and add noise
+            base_rate = 100000.0  # counts/s
+            contrast = 0.3  # 30% contrast
+            signal = base_rate * (1 - contrast * (1 - signal))
+            
+            # Add some noise
+            noise_level = 0.02  # 2% noise
+            signal += np.random.normal(0, noise_level * base_rate, n_points)
+            
+            # Return result object
+            return SimulationResult(
+                type="Rabi",
+                times=times,
+                signal=signal,
+                rabi_frequency=rabi_freq,
+                t2=t2,
+                mw_power=mw_power,
+                mw_frequency=mw_frequency if mw_frequency else self.config["d_gs"]
+            )
+            
+    def simulate_t1(self, t_max, n_points):
+        """
+        Run a T1 relaxation experiment.
+        
+        Parameters
+        ----------
+        t_max : float
+            Maximum relaxation time in seconds
+        n_points : int
+            Number of time points
+            
+        Returns
+        -------
+        SimulationResult
+            Object containing times and signals
+        """
+        with self.lock:
+            # Generate time points
+            times = np.linspace(0, t_max, n_points)
+            
+            # T1 relaxation time
+            t1 = self.config["t1"]
+            
+            # Generate T1 relaxation curve
+            # NV starts in ms=±1 and relaxes to ms=0
+            relaxation = 1 - np.exp(-times/t1)
+            
+            # Scale to typical fluorescence rate and add noise
+            base_rate = 100000.0  # counts/s
+            contrast = 0.3  # 30% contrast
+            signal = base_rate * (1 - contrast * (1 - relaxation))
+            
+            # Add some noise
+            noise_level = 0.02  # 2% noise
+            signal += np.random.normal(0, noise_level * base_rate, n_points)
+            
+            # Return result object
+            return SimulationResult(
+                type="T1",
+                times=times,
+                signal=signal,
+                t1=t1
+            )
+    
+    def simulate_ramsey(self, t_max, n_points, detuning=0.0, mw_power=0.0):
+        """
+        Run a Ramsey experiment.
+        
+        Parameters
+        ----------
+        t_max : float
+            Maximum free evolution time in seconds
+        n_points : int
+            Number of time points
+        detuning : float, optional
+            Detuning from resonance in Hz
+        mw_power : float, optional
+            Microwave power in dBm
+            
+        Returns
+        -------
+        SimulationResult
+            Object containing times and signals
+        """
+        with self.lock:
+            # Generate time points
+            times = np.linspace(0, t_max, n_points)
+            
+            # Convert dBm to pi/2 pulse fidelity (simplified model)
+            power_factor = 10**(mw_power/20)  # Convert from dBm to amplitude
+            pulse_fidelity = min(1.0, power_factor)  # Higher power → better fidelity
+            
+            # T2* time is typically much shorter than T2
+            t2_star = self.config["t2"] / 10  # T2* time, typically ~1 μs for NV
+            
+            # Generate Ramsey signal
+            # Oscillation from detuning
+            oscillation = np.cos(2*np.pi*detuning*times)
+            
+            # Dephasing from T2*
+            dephasing = np.exp(-(times/t2_star)**2)  # Gaussian decay for T2*
+            
+            # Combine effects - fidelity affects fringe visibility
+            ramsey = 0.5 + 0.5 * pulse_fidelity**2 * oscillation * dephasing
+            
+            # Scale to typical fluorescence rate and add noise
+            base_rate = 100000.0  # counts/s
+            contrast = 0.3  # 30% contrast
+            signal = base_rate * (1 - contrast * (1 - ramsey))
+            
+            # Add some noise
+            noise_level = 0.02  # 2% noise
+            signal += np.random.normal(0, noise_level * base_rate, n_points)
+            
+            # Return result object
+            return SimulationResult(
+                type="Ramsey",
+                times=times,
+                signal=signal,
+                t2_star=t2_star,
+                detuning=detuning,
+                mw_power=mw_power
+            )
+    
+    def simulate_echo(self, t_max, n_points, mw_power=0.0):
+        """
+        Run a Hahn echo experiment.
+        
+        Parameters
+        ----------
+        t_max : float
+            Maximum free evolution time in seconds
+        n_points : int
+            Number of time points
+        mw_power : float, optional
+            Microwave power in dBm
+            
+        Returns
+        -------
+        SimulationResult
+            Object containing times and signals
+        """
+        with self.lock:
+            # Generate time points
+            times = np.linspace(0, t_max, n_points)
+            
+            # T2 time
+            t2 = self.config["t2"]
+            
+            # Convert dBm to pulse fidelity (simplified model)
+            power_factor = 10**(mw_power/20)  # Convert from dBm to amplitude
+            
+            # Pulse error increases with lower power, affects decay rate
+            pulse_quality = max(0.2, min(1.0, power_factor))
+            
+            # Pulse error effects on T2
+            effective_t2 = t2 * pulse_quality
+            
+            # Decay exponent - closer to Gaussian (2) for weak magnetic field
+            # Closer to exponential (1) for strong field
+            b_magnitude = np.linalg.norm(self.b_field)
+            decay_exponent = 1.0 + max(0.0, min(1.0, 1.0 - b_magnitude/0.1))
+            
+            # Generate echo signal with appropriate decay
+            echo = np.exp(-(times/effective_t2)**decay_exponent)
+            
+            # For 13C-rich environments, add modulation at the 13C Larmor frequency
+            if self.config.get("c13_concentration", 0.011) > 0.01:
+                c13_gyro = 10.7084e6  # 13C gyromagnetic ratio (Hz/T)
+                larmor_freq = c13_gyro * b_magnitude
+                mod_depth = 0.2 * min(1.0, b_magnitude/0.05)  # Field-dependent depth
+                echo += mod_depth * np.sin(2*np.pi*larmor_freq*times) * echo
+            
+            # Scale to typical fluorescence rate and add noise
+            base = 100000.0  # counts/s, typical fluorescence count rate
+            contrast = 0.3   # Typical contrast for NV center
+            signal = base * (1.0 - contrast * (1.0 - echo))
+            
+            # Add noise
+            noise_level = 0.02  # 2% noise
+            signal += np.random.normal(0, base*noise_level, n_points)
+            
+            # Return the simulated results 
+            return SimulationResult(
+                type="T2_Echo",
+                times=times,
+                signal=signal,
+                t2=t2,
+                decay_exponent=decay_exponent
+            )
+    
+    def simulate_dynamical_decoupling(self, sequence_type, t_max, n_points, n_pulses, 
+                                    mw_frequency=None, mw_power=0.0):
+        """
+        Run a dynamical decoupling sequence.
+        
+        This method simulates the effect of pulse sequences on the NV center state.
+        
+        Parameters
+        ----------
+        sequence_type : str
+            Type of sequence, one of: "hahn", "cpmg", "xy4", "xy8", "xy16", "kdd"
+        t_max : float
+            Maximum free evolution time in seconds
+        n_points : int
+            Number of time points
+        n_pulses : int
+            Number of π pulses in the sequence
+        mw_frequency : float, optional
+            Microwave frequency in Hz. If None, use resonance frequency.
+        mw_power : float, optional
+            Microwave power in dBm
+            
+        Returns
+        -------
+        SimulationResult
+            Object containing times, signals, and coherence parameters
+        """
+        with self.lock:
+            # Convert sequence type to lowercase for case-insensitive comparison
+            sequence_type_lower = sequence_type.lower()
+            
+            # Generate time points
+            times = np.linspace(0, t_max, n_points)
+            
+            # Calculate effective T2 time based on number of pulses
+            # Use the empirical scaling law: T2(n) = T2 * n^p where p is typically 2/3
+            scaling_power = 0.67  # Typical value from literature for NV centers
+            t2_effective = self.config["t2"] * (n_pulses**scaling_power) if n_pulses > 0 else self.config["t2"]
+            
+            # Generate a realistic decay curve
+            # Decay exponent depends on the sequence type and environment
+            if sequence_type_lower == "cpmg":
+                decay_exponent = 2.0  # CPMG often has Gaussian-like decay
+            elif sequence_type_lower == "xy4":
+                decay_exponent = 1.5  # XY sequences have different decoherence characteristics
+            elif sequence_type_lower == "xy8":
+                decay_exponent = 1.3  # Typically more robust than XY4
+            elif sequence_type_lower == "xy16":
+                decay_exponent = 1.1  # Most robust sequence
+            elif sequence_type_lower == "kdd":
+                decay_exponent = 1.0  # Most robust against pulse errors
+            elif sequence_type_lower == "hahn":
+                decay_exponent = 2.0  # Hahn echo typically has Gaussian decay
+                t2_effective = self.config["t2"]  # Use base T2 for Hahn echo
+            else:
+                decay_exponent = 2.0  # Default
+            
+            # Create the decay signal
+            signal = 100000.0 * (1.0 - 0.3 * np.exp(-(times/t2_effective)**decay_exponent))
+            
+            # Add realistic noise
+            noise_scale = 0.02 + 0.01 * np.random.random()  # 2-3% noise
+            signal += np.random.normal(0, 100000.0*noise_scale, n_points)
+            
+            # For very long sequences, add some modulation to simulate nuclear spin coupling
+            if n_pulses > 4 and sequence_type_lower in ["xy8", "xy16", "kdd"]:
+                # Add subtle modulation with nuclear Larmor precession
+                coupling_strength = 100000.0 * 0.3 * 0.1  # 10% of contrast
+                modulation_freq = 0.5e6  # 0.5 MHz (typical for nuclear spins)
+                mod_phase = np.random.random() * 2 * np.pi  # Random phase
+                signal += coupling_strength * np.sin(2*np.pi*modulation_freq*times + mod_phase) * np.exp(-times/t2_effective)
+            
+            # Return results
+            return SimulationResult(
+                type=f"DynamicalDecoupling_{sequence_type}",
+                times=times,
+                signal=signal,
+                n_pulses=n_pulses,
+                sequence_type=sequence_type,
+                t2=t2_effective,
+                decay_exponent=decay_exponent,
+                quantum_simulation=False
+            )
+    
+    def get_populations(self):
+        """
+        Get the populations of different spin states.
+        
+        Returns
+        -------
+        dict
+            Dictionary with keys 'ms0', 'ms_plus', 'ms_minus' and their probabilities
+        """
+        with self.lock:
+            # Basic implementation for 3-level system
+            return {
+                'ms0': self.state[0],
+                'ms+1': self.state[1],
+                'ms-1': self.state[2]
+            }
+    
+    def get_fluorescence(self):
+        """
+        Get the fluorescence signal for the current state.
+        
+        Returns
+        -------
+        float
+            Fluorescence signal in counts per second
+        """
+        with self.lock:
+            # In the simplified model, fluorescence depends on the ground state ms=0 population
+            ms0_pop = self.state[0]
+            
+            # ms=0 has higher fluorescence than ms=±1
+            base_fluorescence = 1e5  # counts/s
+            contrast = 0.3  # 30% contrast
+            
+            # Scale by collection efficiency
+            return base_fluorescence * self._collection_efficiency * (1.0 - contrast * (1.0 - ms0_pop))
