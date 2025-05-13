@@ -26,6 +26,7 @@ import numpy as np
 from qudi.interface.microwave_interface import MicrowaveInterface, MicrowaveConstraints
 from qudi.util.enums import SamplingOutputMode
 from qudi.util.mutex import Mutex
+from qudi.core.configoption import ConfigOption
 
 
 class MicrowaveDummy(MicrowaveInterface):
@@ -35,7 +36,15 @@ class MicrowaveDummy(MicrowaveInterface):
 
     mw_source_dummy:
         module.Class: 'microwave.mw_source_dummy.MicrowaveDummy'
+        options:
+            use_nv_simulator: True  # optional, whether to use the NV simulator
+            magnetic_field: [0, 0, 500]  # optional, magnetic field in Gauss [x, y, z]
+            temperature: 300  # optional, temperature in Kelvin
     """
+    
+    _use_nv_simulator = ConfigOption(name='use_nv_simulator', default=False)
+    _magnetic_field = ConfigOption(name='magnetic_field', default=[0, 0, 500])  # Gauss
+    _temperature = ConfigOption(name='temperature', default=300)  # Kelvin
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -70,6 +79,26 @@ class MicrowaveDummy(MicrowaveInterface):
         self._scan_mode = SamplingOutputMode.JUMP_LIST
         self._scan_sample_rate = 100
         self._is_scanning = False
+        
+        # Try to initialize the NV simulator manager
+        self._nv_sim = None
+        if self._use_nv_simulator:
+            try:
+                from nv_simulator_manager import NVSimulatorManager
+                self._nv_sim = NVSimulatorManager(
+                    magnetic_field=self._magnetic_field,
+                    temperature=self._temperature,
+                    use_simulator=True
+                )
+                self.log.info("NV simulator integration enabled for microwave_dummy")
+                self.log.debug(f"NV simulator initialized with magnetic field {self._magnetic_field} G, "
+                              f"temperature {self._temperature} K")
+            except ImportError as e:
+                self.log.warning(f"Could not import NV simulator manager: {e}")
+                self.log.warning("NV simulator integration disabled")
+            except Exception as e:
+                self.log.warning(f"Failed to initialize NV simulator: {e}")
+                self.log.warning("NV simulator integration disabled")
 
     def on_deactivate(self):
         """ Cleanup performed during deactivation of the module.
@@ -166,6 +195,16 @@ class MicrowaveDummy(MicrowaveInterface):
                 self.log.debug('Microwave output was not active')
                 return
             self.log.debug('Stopping microwave output')
+            
+            # Update NV simulator if available
+            if hasattr(self, '_nv_sim') and self._nv_sim is not None:
+                try:
+                    # Turn off microwave in simulator
+                    self._nv_sim.set_microwave(self._cw_frequency, self._cw_power, False)
+                    self.log.debug("NV simulator microwave turned off")
+                except Exception as e:
+                    self.log.warning(f"Failed to update NV simulator: {e}")
+            
             time.sleep(1)
             self._is_scanning = False
             self.module_state.unlock()
@@ -189,6 +228,20 @@ class MicrowaveDummy(MicrowaveInterface):
             self.log.debug(f'Setting CW power to {power} dBm and frequency to {frequency:.9e} Hz')
             self._cw_power = power
             self._cw_frequency = frequency
+            
+            # Update NV simulator if available
+            if hasattr(self, '_nv_sim') and self._nv_sim is not None:
+                try:
+                    # Only update frequency and power, but don't turn on
+                    # (since this method doesn't turn on the microwave)
+                    if self.module_state() == 'locked' and not self._is_scanning:
+                        # Only update if we're in CW mode and running
+                        self._nv_sim.set_microwave(self._cw_frequency, self._cw_power, True)
+                    else:
+                        # Store values but don't turn on
+                        self._nv_sim.set_microwave(self._cw_frequency, self._cw_power, False)
+                except Exception as e:
+                    self.log.warning(f"Failed to update NV simulator: {e}")
 
     def cw_on(self):
         """ Switches on cw microwave output.
@@ -201,6 +254,17 @@ class MicrowaveDummy(MicrowaveInterface):
                                f'and {self._cw_power:.6f} dBm')
                 time.sleep(1)
                 self._is_scanning = False
+                
+                # Update NV simulator if available
+                if hasattr(self, '_nv_sim') and self._nv_sim is not None:
+                    try:
+                        # Turn on MW with current frequency and power
+                        self._nv_sim.set_microwave(self._cw_frequency, self._cw_power, True)
+                        self.log.debug("NV simulator microwave turned on")
+                    except Exception as e:
+                        self.log.warning(f"Failed to update NV simulator: {e}")
+                
+                # Lock the module state
                 self.module_state.lock()
             elif self._is_scanning:
                 raise RuntimeError(
@@ -244,6 +308,28 @@ class MicrowaveDummy(MicrowaveInterface):
                 )
             self.module_state.lock()
             self._is_scanning = True
+            
+            # Update NV simulator if available
+            # For frequency scans, we don't actually control the NV simulator's microwave
+            # since the ODMR module is going to get data from finite_sampling_input_dummy,
+            # not from the NV simulator directly
+            if hasattr(self, '_nv_sim') and self._nv_sim is not None:
+                try:
+                    # Just notify about scan starting
+                    self.log.debug("Notifying NV simulator about frequency scan")
+                    
+                    # Set microwave power but not frequency (will be scanned)
+                    if self._scan_mode == SamplingOutputMode.EQUIDISTANT_SWEEP:
+                        freq_min, freq_max, num_points = self._scan_frequencies
+                        self.log.debug(f"Frequency scan range: {freq_min/1e9:.6f}-{freq_max/1e9:.6f} GHz")
+                    else:
+                        # Jump list mode
+                        freq_min = np.min(self._scan_frequencies)
+                        freq_max = np.max(self._scan_frequencies)
+                        self.log.debug(f"Frequency scan list: {len(self._scan_frequencies)} points")
+                except Exception as e:
+                    self.log.warning(f"Failed to update NV simulator about scan: {e}")
+            
             time.sleep(1)
             self.log.debug(f'Starting frequency scan in "{self._scan_mode.name}" mode')
 

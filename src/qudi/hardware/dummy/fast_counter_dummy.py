@@ -26,6 +26,7 @@ import numpy as np
 
 from qudi.core.configoption import ConfigOption
 from qudi.interface.fast_counter_interface import FastCounterInterface
+from qudi.util.mutex import Mutex
 
 
 class FastCounterDummy(FastCounterInterface):
@@ -38,12 +39,18 @@ class FastCounterDummy(FastCounterInterface):
         options:
             gated: False
             #load_trace: None # path to the saved dummy trace
+            use_nv_simulator: True  # optional, whether to use the NV simulator
+            magnetic_field: [0, 0, 500]  # optional, magnetic field in Gauss [x, y, z]
+            temperature: 300  # optional, temperature in Kelvin
 
     """
 
     # config option
     _gated = ConfigOption('gated', False, missing='warn')
     trace_path = ConfigOption('load_trace', None)
+    _use_nv_simulator = ConfigOption(name='use_nv_simulator', default=False)
+    _magnetic_field = ConfigOption(name='magnetic_field', default=[0, 0, 500])  # Gauss
+    _temperature = ConfigOption(name='temperature', default=300)  # Kelvin
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -53,6 +60,8 @@ class FastCounterDummy(FastCounterInterface):
                                                            '..',
                                                            'FastComTec_demo_timetrace.asc'))
             self.log.debug(f"Loading dummy fastcounter trace: {self.trace_path}")
+            
+        self._thread_lock = Mutex()
 
     def on_activate(self):
         """ Initialisation performed during activation of the module.
@@ -60,6 +69,27 @@ class FastCounterDummy(FastCounterInterface):
         self.statusvar = 0
         self._binwidth = 1
         self._gate_length_bins = 8192
+        
+        # Try to initialize the NV simulator manager
+        self._nv_sim = None
+        if self._use_nv_simulator:
+            try:
+                from nv_simulator_manager import NVSimulatorManager
+                self._nv_sim = NVSimulatorManager(
+                    magnetic_field=self._magnetic_field,
+                    temperature=self._temperature,
+                    use_simulator=True
+                )
+                self.log.info("NV simulator integration enabled for fast_counter_dummy")
+                self.log.debug(f"NV simulator initialized with magnetic field {self._magnetic_field} G, "
+                              f"temperature {self._temperature} K")
+            except ImportError as e:
+                self.log.warning(f"Could not import NV simulator manager: {e}")
+                self.log.warning("Using fallback simulation model instead")
+            except Exception as e:
+                self.log.warning(f"Failed to initialize NV simulator: {e}")
+                self.log.warning("Using fallback simulation model instead")
+        
         return
 
     def on_deactivate(self):
@@ -217,11 +247,43 @@ class FastCounterDummy(FastCounterInterface):
 
         If the hardware does not support these features, the values should be None
         """
-
-        # include an artificial waiting time
-        time.sleep(0.5)
-        info_dict = {'elapsed_sweeps': None, 'elapsed_time': None}
-        return self._count_data, info_dict
+        
+        with self._thread_lock:
+            # Get simulator instance if it's not already available
+            if not hasattr(self, '_nv_sim') or self._nv_sim is None:
+                try:
+                    from nv_simulator_manager import NVSimulatorManager
+                    self._nv_sim = NVSimulatorManager(
+                        magnetic_field=self._magnetic_field,
+                        temperature=self._temperature,
+                        use_simulator=True
+                    )
+                    self.log.info("NV simulator initialized on-demand for fast counter")
+                except Exception as e:
+                    raise RuntimeError(f"Could not initialize NV simulator: {e}")
+            
+            # Get the current fluorescence rate from the NV simulator
+            rate = self._nv_sim.get_fluorescence_rate()
+            
+            # Get time bin width in seconds
+            bin_width = self.get_binwidth()
+            
+            # Calculate expected counts per bin based on rate and bin width
+            counts_per_bin = rate * bin_width
+            
+            # Generate Poisson-distributed counts
+            if not self._gated:
+                # Non-gated mode: generate 1D array
+                count_data = np.random.poisson(counts_per_bin, self._gate_length_bins)
+            else:
+                # Gated mode: generate 2D array with 1 gate
+                count_data = np.random.poisson(
+                    counts_per_bin, (1, self._gate_length_bins))
+            
+            # Include an artificial waiting time
+            time.sleep(0.5)
+            info_dict = {'elapsed_sweeps': 1, 'elapsed_time': 0.5}
+            return count_data, info_dict
 
     def get_frequency(self):
         freq = 950.

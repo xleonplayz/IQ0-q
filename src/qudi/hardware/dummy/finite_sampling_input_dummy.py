@@ -51,6 +51,9 @@ class FiniteSamplingInputDummy(FiniteSamplingInputInterface):
             channel_units:
                 'APD counts': 'c/s'
                 'Photodiode': 'V'
+            use_nv_simulator: True  # optional, whether to use the NV simulator
+            magnetic_field: [0, 0, 500]  # optional, magnetic field in Gauss [x, y, z]
+            temperature: 300  # optional, temperature in Kelvin
     """
 
     _sample_rate_limits = ConfigOption(name='sample_rate_limits', default=(1, 1e6))
@@ -60,6 +63,9 @@ class FiniteSamplingInputDummy(FiniteSamplingInputInterface):
     _simulation_mode = ConfigOption(name='simulation_mode',
                                     default='ODMR',
                                     constructor=lambda x: SimulationMode[x.upper()])
+    _use_nv_simulator = ConfigOption(name='use_nv_simulator', default=False)
+    _magnetic_field = ConfigOption(name='magnetic_field', default=[0, 0, 500])  # Gauss
+    _temperature = ConfigOption(name='temperature', default=300)  # Kelvin
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -97,6 +103,26 @@ class FiniteSamplingInputDummy(FiniteSamplingInputInterface):
         self.__returned_samples = 0
         self.__simulated_samples = None
         self.__simulated_odmr_params = dict()
+        
+        # Try to initialize the NV simulator manager
+        self._nv_sim = None
+        if self._use_nv_simulator:
+            try:
+                from nv_simulator_manager import NVSimulatorManager
+                self._nv_sim = NVSimulatorManager(
+                    magnetic_field=self._magnetic_field,
+                    temperature=self._temperature,
+                    use_simulator=True
+                )
+                self.log.info("NV simulator integration enabled for finite_sampling_input_dummy")
+                self.log.debug(f"NV simulator initialized with magnetic field {self._magnetic_field} G, "
+                              f"temperature {self._temperature} K")
+            except ImportError as e:
+                self.log.warning(f"Could not import NV simulator manager: {e}")
+                self.log.warning("Using fallback simulation model instead")
+            except Exception as e:
+                self.log.warning(f"Failed to initialize NV simulator: {e}")
+                self.log.warning("Using fallback simulation model instead")
 
     def on_deactivate(self):
         self.__simulated_samples = None
@@ -233,40 +259,49 @@ class FiniteSamplingInputDummy(FiniteSamplingInputInterface):
         if length < 3:
             self.__simulate_random(length)
             return
-            
-        # Simulierte ODMR mit 500 Gauss Zeeman-Splitting
-        gamma = 2
-        data = dict()
-        x = np.arange(length, dtype=np.float64)
         
-        # Base parameters
-        base = 200000  # Base fluorescence count
-        contrast = 0.3  # 30% contrast
-        linewidth = 5.0  # Linewidth parameter
+        # Generate data for each active channel
+        data = dict()
+        
+        # Define frequency range for ODMR scan
+        zero_field = 2.87e9  # Zero-field splitting in Hz
+        freq_range = 2.0e9  # Typical MW scan range (2 GHz)
+        freq_min = zero_field - freq_range/2
+        freq_max = zero_field + freq_range/2
+        
+        # Get simulator instance
+        if not hasattr(self, '_nv_sim') or self._nv_sim is None:
+            # Create the simulator if it doesn't exist yet
+            try:
+                from nv_simulator_manager import NVSimulatorManager
+                self._nv_sim = NVSimulatorManager(
+                    magnetic_field=self._magnetic_field,
+                    temperature=self._temperature,
+                    use_simulator=True
+                )
+                self.log.info("NV simulator initialized on-demand for ODMR simulation")
+            except Exception as e:
+                raise RuntimeError(f"Could not initialize NV simulator: {e}")
+        
+        # Simulate ODMR using the NV simulator
+        odmr_result = self._nv_sim.simulate_odmr(freq_min, freq_max, length)
         
         for ch in self._active_channels:
-            # Add some random variation
-            offset = ((np.random.rand() - 0.5) * 0.05 + 1) * base
-            noise_level = offset * 0.02  # 2% noise
+            # Add some random variation to base level for each channel
+            base_level = ((np.random.rand() - 0.5) * 0.05 + 1) * 200000
+            signal_scale = base_level / 100000.0  # Scale factor
             
-            # Create two dips for Zeeman splitting (500 G ~ 1.4 GHz)
-            zero_field = 2.87e9  # Zero-field splitting in Hz
-            zeeman_shift = 2.8e6 * 500  # 2.8 MHz/G * 500 G = 1.4 GHz
+            # Scale the signal to the base level for this channel
+            signal = odmr_result['signal'] * signal_scale
             
-            # Map frequency range to array indices 
-            freq_range = 2.0e9  # Typical MW scan range (2 GHz)
-            pos_center = length / 2  # Center position (corresponds to zero_field)
-            scaling = length / freq_range  # Convert Hz to array index units
+            # Add some extra random noise
+            noise_level = base_level * 0.02  # 2% noise
+            noise = (np.random.rand(length) - 0.5) * noise_level
             
-            # Positions for two resonance dips
-            pos1 = pos_center - zeeman_shift * scaling / 2  # ms=0 to ms=-1
-            pos2 = pos_center + zeeman_shift * scaling / 2  # ms=0 to ms=+1
-            
-            # Create two Lorentzian dips
-            dip1 = contrast * gamma**2 / ((x - pos1)**2 + gamma**2)
-            dip2 = contrast * gamma**2 / ((x - pos2)**2 + gamma**2)
-            
-            # Combine dips and add noise
-            data[ch] = offset * (1.0 - dip1 - dip2) + (np.random.rand(length) - 0.5) * noise_level
-            
+            # Store the final signal with noise
+            data[ch] = signal + noise
+        
         self.__simulated_samples = data
+        
+        # Log success
+        self.log.debug("Generated ODMR data using NV simulator model")

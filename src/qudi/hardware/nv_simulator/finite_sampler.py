@@ -63,7 +63,7 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
     _channel_units = ConfigOption('channel_units', default={'APD counts': 'c/s', 'Photodiode': 'V'}, missing='warn')
     
     # Connectors
-    simulator = Connector(interface='MicrowaveInterface')
+    simulator = Connector(interface='MicrowaveInterface')  # Connect to QudiFacade which implements MicrowaveInterface
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -88,13 +88,34 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
             channel_units=self._channel_units
         )
         
-        # Get QudiFacade from connector
-        self._qudi_facade = self.simulator()
-        
-        # Reset the NV simulator state
-        self._qudi_facade.reset()
-        
-        self.log.info('NV Simulator Finite Sampler initialized')
+        try:
+            # Get QudiFacade from connector
+            self.log.info('Trying to get QudiFacade from connector...')
+            self._qudi_facade = self.simulator()
+            self.log.info('Successfully retrieved QudiFacade from connector')
+            
+            # Reset the NV simulator state
+            self._qudi_facade.reset()
+            
+            # Initialize data buffer
+            self._data_buffer = np.zeros((len(self._active_channels), self._current_frame_size))
+            
+            self.log.info('NV Simulator Finite Sampler initialized successfully')
+        except Exception as e:
+            self.log.error(f"Error activating NVSimFiniteSampler: {str(e)}")
+            # Try direct import as fallback
+            try:
+                from qudi_facade import QudiFacade
+                self._qudi_facade = QudiFacade()
+                self.log.info('Using direct QudiFacade instantiation as fallback')
+                
+                # Initialize data buffer
+                self._data_buffer = np.zeros((len(self._active_channels), self._current_frame_size))
+                
+                self.log.info('NV Simulator Finite Sampler initialized with fallback')
+            except Exception as e2:
+                self.log.error(f"Fallback also failed: {str(e2)}")
+                raise
         
     def on_deactivate(self):
         """Cleanup performed during deactivation of the module."""
@@ -388,6 +409,7 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
             # Generate simulated fluorescence for ODMR
             # For simplicity, we use a Lorentzian dip for the resonance
             resonance_freq = 2.87e9  # Zero-field splitting (Hz)
+            
             # Access b_field attribute from model (in Tesla)
             b_field = self._qudi_facade.nv_model.b_field
             
@@ -396,19 +418,30 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
             
             # Zeeman splitting (~2.8 MHz/G)
             zeeman_shift = 2.8e6 * field_strength_gauss  # field in G, shift in Hz
+            
+            # Log the current frequency and computed Zeeman shift for debugging
+            self.log.info(f"Current MW frequency: {current_freq/1e9} GHz")
             self.log.info(f"Magnetic field: {b_field} T, Field strength: {field_strength_gauss} G, Zeeman shift: {zeeman_shift/1e6} MHz")
+            self.log.info(f"Resonances at: {(resonance_freq-zeeman_shift)/1e9} GHz and {(resonance_freq+zeeman_shift)/1e9} GHz")
             
             # Create two dips for the ms=±1 states
-            dip1_center = resonance_freq - zeeman_shift
-            dip2_center = resonance_freq + zeeman_shift
+            dip1_center = resonance_freq - zeeman_shift  # ms=0 to ms=-1 transition
+            dip2_center = resonance_freq + zeeman_shift  # ms=0 to ms=+1 transition
             
-            linewidth = 10e6  # 10 MHz linewidth
-            contrast = 0.3  # 30% contrast
+            linewidth = 20e6  # 20 MHz linewidth (realistic for ODMR in diamond)
+            contrast = 0.3  # 30% contrast (typical for NV centers)
             baseline = 1.0
+            
+            # Compare current frequency to resonances
+            if abs(current_freq - dip1_center) < 100e6 or abs(current_freq - dip2_center) < 100e6:
+                self.log.info(f"Close to resonance at {current_freq/1e9} GHz")
             
             # Lorentzian function for each dip
             dip1 = contrast * linewidth**2 / ((current_freq - dip1_center)**2 + linewidth**2)
             dip2 = contrast * linewidth**2 / ((current_freq - dip2_center)**2 + linewidth**2)
+            
+            # Calculate and log resonance depths at current frequency
+            self.log.debug(f"Dip1 value: {dip1}, Dip2 value: {dip2} at freq: {current_freq/1e9} GHz")
             
             # Combine dips and scale to photon counts (typical rates for NV)
             signal = (baseline - dip1 - dip2) * 100000.0  # ~100k counts/s
