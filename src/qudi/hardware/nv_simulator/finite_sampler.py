@@ -181,8 +181,24 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
             if self._is_running:
                 raise RuntimeError("Unable to configure while sampling is running. Call stop_buffering() first.")
                 
-            # Check parameters for sanity
-            self._constraints.test_configuration(active_channels, sample_rate, frame_size)
+            # Check parameters for sanity - with compatibility check for different Qudi versions
+            if hasattr(self._constraints, 'test_configuration'):
+                # Use newer interface if available
+                self._constraints.test_configuration(active_channels, sample_rate, frame_size)
+            else:
+                # Manual validation for older Qudi versions
+                # Check channels
+                for channel in active_channels:
+                    if channel not in self._constraints.channel_units:
+                        raise ValueError(f"Channel '{channel}' not in available channels: {list(self._constraints.channel_units.keys())}")
+                
+                # Check sample rate
+                if not (self._constraints.sample_rate_limits[0] <= sample_rate <= self._constraints.sample_rate_limits[1]):
+                    raise ValueError(f"Sample rate {sample_rate} out of bounds: {self._constraints.sample_rate_limits}")
+                    
+                # Check frame size
+                if not (self._constraints.frame_size_limits[0] <= frame_size <= self._constraints.frame_size_limits[1]):
+                    raise ValueError(f"Frame size {frame_size} out of bounds: {self._constraints.frame_size_limits}")
             
             # Set new configuration
             self._active_channels = active_channels.copy()

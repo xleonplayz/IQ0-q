@@ -68,7 +68,7 @@ def test_direct_frequency_setting():
     
     # Initialize modules
     logger.info("Initializing modules...")
-    qudi_facade = QudiFacade(name="QudiFacade_Test")
+    qudi_facade = QudiFacade(name="QudiFacade_Test", test_mode=True)
     qudi_facade.on_activate()
     
     # Set magnetic field to 500 Gauss along z-axis
@@ -191,7 +191,7 @@ def test_scan_mode_synchronization():
     
     # Initialize modules
     logger.info("Initializing modules...")
-    qudi_facade = QudiFacade(name="QudiFacade_Test")
+    qudi_facade = QudiFacade(name="QudiFacade_Test", test_mode=True)
     qudi_facade.on_activate()
     
     # Set magnetic field to 500 Gauss along z-axis

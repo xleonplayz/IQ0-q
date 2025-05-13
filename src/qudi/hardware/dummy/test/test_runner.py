@@ -96,6 +96,36 @@ def patch_imports():
         from qudi.interface.microwave_interface import MicrowaveInterface
         from qudi.interface.finite_sampling_input_interface import FiniteSamplingInputInterface
         logger.info("Using real Qudi imports")
+        
+        # Patch the QudiFacade to support test_mode even when real Qudi is available
+        try:
+            from qudi.hardware.nv_simulator.qudi_facade import QudiFacade
+            original_new = QudiFacade.__new__
+            
+            # If __new__ is not already patched
+            if not hasattr(QudiFacade, '_original_new'):
+                # Store the original for reference
+                QudiFacade._original_new = original_new
+                
+                # Define the patched method
+                def patched_new(cls, *args, **kwargs):
+                    # Handle test_mode parameter
+                    test_mode = kwargs.pop('test_mode', False)
+                    
+                    if test_mode:
+                        # In test mode, create a new instance
+                        instance = object.__new__(cls)
+                        instance._initialized = False
+                        return instance
+                    
+                    # Otherwise use the original implementation
+                    return original_new(cls, *args, **kwargs)
+                
+                # Apply the patch
+                QudiFacade.__new__ = patched_new
+                logger.info("Patched QudiFacade.__new__ to support test_mode")
+        except ImportError:
+            logger.warning("Could not patch QudiFacade, it might not be imported yet")
     except ImportError:
         logger.info("Patching Qudi imports with fixed modules")
         

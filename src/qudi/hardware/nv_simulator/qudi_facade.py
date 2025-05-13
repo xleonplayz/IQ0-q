@@ -461,7 +461,17 @@ class QudiFacade(MicrowaveInterface):
     }
     
     def __new__(cls, *args, **kwargs):
-        """Implement singleton pattern."""
+        """Implement singleton pattern with test mode option."""
+        # Check if we're in test mode (allow multiple instances)
+        test_mode = kwargs.pop('test_mode', False)
+        
+        if test_mode:
+            # In test mode, create a new instance each time
+            instance = super(QudiFacade, cls).__new__(cls)
+            instance._initialized = False
+            return instance
+        
+        # Normal singleton behavior
         if cls._instance is None:
             cls._instance = super(QudiFacade, cls).__new__(cls)
             cls._instance._initialized = False

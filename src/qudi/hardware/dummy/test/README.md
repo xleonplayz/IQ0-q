@@ -14,6 +14,8 @@ This directory contains test scripts to diagnose communication issues between th
 1. **Module Import Error**: Fixed missing `qudi_main_weakref` and `name` parameters in all modules
 2. **Base Class Availability**: Added mock implementations of Qudi core classes in `fixed_modules/`
 3. **Missing Logging**: Ensured logging is properly configured for all test modules
+4. **Singleton Initialization Error**: Added `test_mode=True` parameter to allow multiple QudiFacade instances 
+5. **API Compatibility**: Made modules work with both older and newer Qudi versions
 
 ## Running the Tests
 
