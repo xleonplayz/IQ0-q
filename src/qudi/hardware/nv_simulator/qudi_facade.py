@@ -34,26 +34,82 @@ from qudi.util.enums import SamplingOutputMode
 # Direct import from the physical location
 # This is a hard-coded approach that should work regardless of installation
 try:
-    # Get the base directory
-    base_dir = Path(os.path.dirname(os.path.abspath(__file__))).parent.parent.parent.parent
-    sim_src_dir = os.path.join(str(base_dir), 'sim', 'src')
+    # Check for our wrapper module first
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    wrapper_path = os.path.join(current_dir, '..', 'dummy', 'sim', 'model_wrapper.py')
+    wrapper_path = os.path.abspath(wrapper_path)
     
-    # Add to path
-    if sim_src_dir not in sys.path:
-        sys.path.insert(0, sim_src_dir)
+    if os.path.exists(wrapper_path):
+        # Add directory to path
+        wrapper_dir = os.path.dirname(wrapper_path)
+        if wrapper_dir not in sys.path:
+            sys.path.insert(0, wrapper_dir)
+        
+        # Use the wrapper module instead
+        from model_wrapper import PhysicalNVModel
+        print(f"Successfully imported PhysicalNVModel using wrapper at {wrapper_path}")
+    else:
+        # Fallback to direct import checks
+        print(f"Wrapper module not found at {wrapper_path}, falling back to direct imports")
+        
+        # 1. First check if it's in the dummy/sim/src directory
+        dummy_sim_path = os.path.join(current_dir, '..', 'dummy', 'sim', 'src')
+        dummy_sim_path = os.path.abspath(dummy_sim_path)
+        if dummy_sim_path not in sys.path:
+            sys.path.insert(0, dummy_sim_path)
+        
+        # 2. Check the base directory path (original approach)
+        base_dir = Path(current_dir).parent.parent.parent.parent
+        sim_src_dir = os.path.join(str(base_dir), 'sim', 'src')
+        if sim_src_dir not in sys.path:
+            sys.path.insert(0, sim_src_dir)
+            
+        # 3. Add sim directory for module imports within model.py
+        sim_dir = os.path.join(str(base_dir), 'sim')
+        if sim_dir not in sys.path:
+            sys.path.insert(0, sim_dir)
+        
+        # 4. Look in the local directory
+        if current_dir not in sys.path:
+            sys.path.insert(0, current_dir)
+        
+        # Try to import the model now that we've added multiple potential paths
+        from model import PhysicalNVModel
     
-    # Import directly from the module
-    from model import PhysicalNVModel
 except ImportError as e:
-    # Provide a clear error message
+    # Provide a clear error message with all the paths we tried
+    try:
+        dummy_sim_path
+    except NameError:
+        dummy_sim_path = "Not checked (using wrapper)"
+    
+    try:
+        sim_src_dir
+    except NameError:
+        sim_src_dir = "Not checked (using wrapper)"
+    
+    # Get all paths that were tried
+    paths_tried = [
+        wrapper_path,
+        dummy_sim_path,
+        sim_src_dir,
+        current_dir
+    ]
+    
     error_msg = f"""
     NV Simulator Import Error:
     {e}
     
-    Please ensure the sim module is available by running:
-    pip install -e C:\\Users\\qudi\\Desktop\\IQO\\IQO-q\\sim
+    Tried to find model.py or model_wrapper.py in the following paths:
+    {os.linesep.join(f"{i+1}. {path}" for i, path in enumerate(paths_tried))}
     
-    Alternative: Copy the model.py file to {os.path.dirname(os.path.abspath(__file__))}
+    Current sys.path:
+    {os.linesep.join(sys.path)}
+    
+    Please ensure the sim module is available by either:
+    1. Running: pip install -e /path/to/IQO-q/sim
+    2. Copying model.py to {current_dir}
+    3. Checking that the path to dummy/sim/src is correct
     """
     raise ImportError(error_msg)
 
