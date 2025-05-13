@@ -205,6 +205,16 @@ def run_test(test_name):
                 logger.critical("[CRITICAL DEBUG] Turning MW OFF")
                 mw.off()
                 
+                # Extra safeguard - force unlock the module state
+                mw.force_unlock_state()
+                
+                # Verify module state
+                logger.critical(f"[CRITICAL DEBUG] Module state after force unlock: {mw.module_state()}")
+                
+                # Extra safety check for QudiFacade state
+                qudi_facade._shared_state['current_mw_on'] = False
+                qudi_facade._shared_state['scanning_active'] = False
+                
                 # Clean up
                 mw.on_deactivate()
                 qudi_facade.on_deactivate()
