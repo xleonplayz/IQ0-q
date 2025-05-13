@@ -235,6 +235,7 @@ class MicrowaveController:
         
         @param frequency: float, frequency in Hz
         """
+        print(f"[CRITICAL DEBUG] Setting MW frequency to {frequency/1e9:.6f} GHz")
         self._frequency = frequency
         if self._is_on:
             self._apply_microwave()
@@ -245,17 +246,20 @@ class MicrowaveController:
         
         @param power: float, power in dBm
         """
+        print(f"[CRITICAL DEBUG] Setting MW power to {power} dBm")
         self._power = power
         if self._is_on:
             self._apply_microwave()
     
     def on(self):
         """Turn on the microwave."""
+        print(f"[CRITICAL DEBUG] Turning MW ON at {self._frequency/1e9:.6f} GHz, {self._power} dBm")
         self._is_on = True
         self._apply_microwave()
     
     def off(self):
         """Turn off the microwave."""
+        print(f"[CRITICAL DEBUG] Turning MW OFF")
         self._is_on = False
         self.nv_model.set_microwave_amplitude(0.0)
     
@@ -267,6 +271,7 @@ class MicrowaveController:
         power_mw = 10**(self._power/10)
         amplitude = np.sqrt(power_mw) * 0.01  # Scaling factor for the model
         
+        print(f"[CRITICAL DEBUG] Applying MW to NV model: {self._frequency/1e9:.6f} GHz, amp={amplitude}")
         self.nv_model.set_microwave_frequency(self._frequency)
         self.nv_model.set_microwave_amplitude(amplitude)
 

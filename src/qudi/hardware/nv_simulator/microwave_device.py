@@ -308,6 +308,10 @@ class NVSimMicrowaveDevice(MicrowaveInterface):
             else:  # EQUIDISTANT_SWEEP
                 first_freq = self._scan_frequencies[0]  # Start frequency
                 
+            # Add extensive logging
+            self.log.info(f"Starting scan with frequencies: {self._scan_frequencies}")
+            self.log.info(f"Setting initial frequency to {first_freq/1e9:.6f} GHz with power {self._scan_power} dBm")
+                
             # Set the microwave parameters in the simulator
             self._qudi_facade.microwave_controller.set_frequency(first_freq)
             self._qudi_facade.microwave_controller.set_power(self._scan_power)
@@ -316,7 +320,7 @@ class NVSimMicrowaveDevice(MicrowaveInterface):
             # Simulate hardware delay
             time.sleep(self._startup_time)
             
-            self.log.debug(f'Starting frequency scan in "{self._scan_mode.name}" mode')
+            self.log.info(f'Started frequency scan in "{self._scan_mode.name}" mode')
 
     def reset_scan(self):
         """Reset currently running scan and return to start frequency.
@@ -346,6 +350,7 @@ class NVSimMicrowaveDevice(MicrowaveInterface):
         """
         with self._thread_lock:
             if not self._is_scanning:
+                self.log.warning("scan_next called but not scanning")
                 return False
                 
             self._current_scan_index += 1
@@ -353,15 +358,18 @@ class NVSimMicrowaveDevice(MicrowaveInterface):
             # Check if we reached the end of the scan
             if self._scan_mode == SamplingOutputMode.JUMP_LIST:
                 if self._current_scan_index >= len(self._scan_frequencies):
+                    self.log.info(f"Scan completed: reached end of jump list ({len(self._scan_frequencies)} frequencies)")
                     return False
                 next_freq = self._scan_frequencies[self._current_scan_index]
             else:  # EQUIDISTANT_SWEEP
                 start_freq, stop_freq, num_steps = self._scan_frequencies
                 if self._current_scan_index >= num_steps:
+                    self.log.info(f"Scan completed: reached end of sweep ({num_steps} steps)")
                     return False
                 next_freq = start_freq + (stop_freq - start_freq) * (self._current_scan_index / (num_steps - 1))
                 
             # Apply the frequency to the simulator
+            self.log.info(f"Scanning to next frequency: {next_freq/1e9:.6f} GHz (index {self._current_scan_index})")
             self._qudi_facade.microwave_controller.set_frequency(next_freq)
             
             return True

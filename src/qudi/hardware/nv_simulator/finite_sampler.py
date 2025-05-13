@@ -405,6 +405,9 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
             mw_controller = self._qudi_facade.microwave_controller
             current_freq = mw_controller._frequency
             
+            # Add extensive debug logging
+            self.log.info(f"ODMR sampling at frequency: {current_freq/1e9:.6f} GHz")
+            
             # Generate simulated fluorescence for ODMR
             # For simplicity, we use a Lorentzian dip for the resonance
             resonance_freq = 2.87e9  # Zero-field splitting (Hz)
