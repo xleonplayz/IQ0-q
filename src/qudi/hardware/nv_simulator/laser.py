@@ -44,11 +44,16 @@ class NVSimLaser(SimpleLaserInterface):
 
     nv_sim_laser:
         module.Class: 'nv_simulator.laser.NVSimLaser'
+        connect:
+            simulator: nv_simulator
         options:
             wavelength: 532  # Laser wavelength in nm
             max_power: 100.0  # Maximum laser power in mW
             power_noise: 0.01  # Relative power noise
     """
+    
+    # Add the missing connector
+    simulator = Connector(interface='MicrowaveInterface')
 
     # Config options
     _wavelength = ConfigOption('wavelength', default=532, missing='warn')  # in nm
@@ -77,6 +82,15 @@ class NVSimLaser(SimpleLaserInterface):
         if self._laser_state == LaserState.ON:
             self.off()
 
+    def get_power(self):
+        """Get the actual laser output power.
+
+        @return float: Actual laser power in watts
+        """
+        with self._thread_lock:
+            # Return in watts (convert from mW)
+            return self.get_current_power() / 1000.0
+            
     def get_current_power(self):
         """Get the actual laser output power.
 
@@ -166,6 +180,46 @@ class NVSimLaser(SimpleLaserInterface):
         @return float: Laser current setpoint in %
         """
         return self._current_setpoint
+        
+    def get_current(self):
+        """Get the actual laser diode current.
+
+        @return float: Actual laser current in %
+        """
+        with self._thread_lock:
+            if self._laser_state == LaserState.OFF:
+                return 0.0
+                
+            # In CURRENT mode, return the setpoint with some noise
+            if self._control_mode == ControlMode.CURRENT:
+                current = self._current_setpoint
+            # In POWER mode, calculate current from power (linear approximation)
+            else:
+                current = self._power_setpoint / self._max_power * 100.0
+                
+            # Add some noise to the reading
+            current_with_noise = current * (1.0 + self._power_noise * (2.0 * (0.5 - time.time() % 1.0)))
+            return current_with_noise
+            
+    def allowed_control_modes(self):
+        """Get supported control modes.
+
+        @return frozenset: Set of supported ControlMode enums
+        """
+        return frozenset((ControlMode.POWER, ControlMode.CURRENT))
+        
+    def set_control_mode(self, control_mode):
+        """Set the active control mode.
+
+        @param ControlMode control_mode: Desired control mode enum
+        """
+        with self._thread_lock:
+            if control_mode not in self.allowed_control_modes():
+                self.log.error(f"Control mode {control_mode} not supported")
+                return
+                
+            self._control_mode = control_mode
+            return self._control_mode
 
     def get_extra_info(self):
         """Get extra information about the laser.
@@ -260,7 +314,31 @@ class NVSimLaser(SimpleLaserInterface):
             self._qudi_facade.laser_controller.off()
             
             return self._laser_state
+            
+    def set_laser_state(self, state):
+        """Set the laser state.
 
+        @param LaserState state: Desired laser state
+        @return LaserState: Actually set laser state
+        """
+        with self._thread_lock:
+            if state == LaserState.ON:
+                return self.on()
+            else:
+                return self.off()
+
+    def set_shutter_state(self, state):
+        """Set the laser shutter state.
+
+        @param ShutterState state: Desired laser shutter state
+        @return ShutterState: Actually set shutter state
+        """
+        with self._thread_lock:
+            if state == ShutterState.OPEN:
+                return self.open_shutter()
+            else:
+                return self.close_shutter()
+    
     def open_shutter(self):
         """Open the laser shutter.
 
