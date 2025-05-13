@@ -7,27 +7,40 @@ This directory contains test scripts to diagnose communication issues between th
 - `test_mw_sampler_sync.py`: Direct test of communication between microwave device and finite sampler
 - `test_odmr_flow.py`: Test of the full ODMR information flow through the logic layer
 - `run_odmr_test.py`: Runner script that executes tests and visualizes results
+- `test_runner.py`: **NEW** Unified test runner that works with or without Qudi installed
 
 ## Common Issues Fixed
 
-1. **Module Import Error**: Updated `QudiFacade` class to accept required Qudi parameters (`qudi_main_weakref` and `name`).
-2. **Base Class Availability**: Added fallback mechanisms for importing the `Base` class when running in a non-Qudi environment.
-3. **Missing Logging**: Ensured logging is properly configured for all test modules.
+1. **Module Import Error**: Fixed missing `qudi_main_weakref` and `name` parameters in all modules
+2. **Base Class Availability**: Added mock implementations of Qudi core classes in `fixed_modules/`
+3. **Missing Logging**: Ensured logging is properly configured for all test modules
 
 ## Running the Tests
 
-For basic frequency sweep test:
+### Recommended Method (Works with or without Qudi installed)
+
+Use the unified test runner:
+
+```bash
+# Run all tests
+python test_runner.py all
+
+# Run specific test(s)
+python test_runner.py mw_sampler_sync odmr_flow
 ```
+
+### Alternative Methods
+
+Individual test scripts can also be run directly:
+
+```bash
+# Basic frequency sweep test
 python test_mw_sampler_sync.py
-```
 
-For complete ODMR flow test:
-```
+# Complete ODMR flow test
 python test_odmr_flow.py
-```
 
-For visualization and analysis:
-```
+# Visualization and analysis
 python run_odmr_test.py
 ```
 
@@ -39,18 +52,23 @@ With a magnetic field of 500 Gauss along the z-axis, you should observe resonanc
 
 ## Troubleshooting
 
-If you encounter additional issues:
+If you encounter errors:
 
-1. Check for any import errors in the console output
-2. Look for debugging information in the log files:
-   - `mw_sampler_sync_test.log` (for test_mw_sampler_sync.py)
-   - `odmr_flow_test.log` (for test_odmr_flow.py)
-3. Examine the plots in the `results` directory
-4. Check the shared state in QudiFacade to see if frequency updates are being properly tracked
+1. Use the `test_runner.py` script first, which handles most import issues automatically
+2. Check logs in the `.log` files for detailed error information
+3. Verify that `fixed_modules/` is in your Python path when running without Qudi
+4. Make sure the NV model can be imported properly
+
+## Mock Modules (fixed_modules/)
+
+The `fixed_modules/` directory contains mock implementations of Qudi core classes needed for testing:
+
+- `qudi_core.py`: Base, ModuleState, ConfigOption, Connector classes
+- `microwave_interface.py`: MicrowaveInterface and constraints
+- `finite_sampling_interface.py`: FiniteSamplingInputInterface and constraints
+
+These are automatically used if the real Qudi modules are not available.
 
 ## Results Directory
 
-Test results and plots are saved in a `results` subdirectory, including:
-- Frequency sweep plots
-- ODMR signal plots
-- Resonance analysis
+Test results and plots are saved in a `results/` subdirectory, created automatically by the tests.

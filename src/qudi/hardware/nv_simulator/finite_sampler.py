@@ -65,8 +65,8 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
     # Connectors
     simulator = Connector(interface='MicrowaveInterface')  # Connect to QudiFacade which implements MicrowaveInterface
     
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, qudi_main_weakref=None, name=None, *args, **kwargs):
+        super().__init__(qudi_main_weakref=qudi_main_weakref, name=name, *args, **kwargs)
         
         self._thread_lock = Mutex()
         self._constraints = None

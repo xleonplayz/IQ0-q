@@ -128,13 +128,13 @@ def run_odmr_flow_test():
     
     # Initialize microwave device
     logger.info("Initializing NVSimMicrowaveDevice...")
-    microwave_device = NVSimMicrowaveDevice()
+    microwave_device = NVSimMicrowaveDevice(name="MW_Test")
     microwave_device.simulator = DummyConnector(qudi_facade)
     microwave_device.on_activate()
     
     # Initialize finite sampler
     logger.info("Initializing NVSimFiniteSampler...")
-    finite_sampler = NVSimFiniteSampler()
+    finite_sampler = NVSimFiniteSampler(name="FiniteSampler_Test")
     finite_sampler.simulator = DummyConnector(qudi_facade)
     finite_sampler.on_activate()
     
