@@ -25,6 +25,7 @@ import os
 import numpy as np
 
 from qudi.core.configoption import ConfigOption
+from qudi.core.connector import Connector
 from qudi.interface.fast_counter_interface import FastCounterInterface
 from qudi.util.mutex import RecursiveMutex
 
@@ -49,6 +50,9 @@ class FastCounterDummy(FastCounterInterface):
     _gated = ConfigOption('gated', False, missing='warn')
     trace_path = ConfigOption('load_trace', None)
     _use_simulator = ConfigOption('use_simulator', True)
+    
+    # connectors
+    _simulator = Connector(name='simulator', interface='SimulatorManager', optional=True)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -77,11 +81,15 @@ class FastCounterDummy(FastCounterInterface):
         # Try to get the simulator manager if configured to use it
         if self._use_simulator:
             try:
-                from qudi.hardware.nv_simulator.simulator_manager import SimulatorManager
-                self._simulator_manager = SimulatorManager()
-                self._simulator_manager.register_module('fast_counter_dummy')
-                self._simulator_available = True
-                self.log.info("Successfully connected to NV simulator")
+                # Use connector to get the simulator
+                self._simulator_manager = self._simulator()
+                if self._simulator_manager is not None:
+                    self._simulator_manager.register_module('fast_counter_dummy')
+                    self._simulator_available = True
+                    self.log.info("Successfully connected to NV simulator")
+                else:
+                    self._simulator_available = False
+                    self.log.warning("NV simulator not available through connector")
             except Exception as e:
                 self.log.warning(f"Could not connect to NV simulator: {str(e)}. "
                                 f"Using fallback dummy behavior instead.")
