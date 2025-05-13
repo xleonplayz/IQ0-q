@@ -28,6 +28,9 @@ import argparse
 import importlib
 import traceback
 
+# Import environment setup to ensure consistent test environment
+from env_setup import env_info
+
 # Configure basic logging
 logging.basicConfig(
     level=logging.DEBUG,
@@ -40,37 +43,22 @@ logging.basicConfig(
 
 logger = logging.getLogger('NV_Sim_Test_Runner')
 
-# Add parent directories to path
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
-qudi_dir = os.path.abspath(os.path.join(current_dir, '../../../..'))
-
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
-if qudi_dir not in sys.path:
-    sys.path.insert(0, qudi_dir)
-if current_dir not in sys.path:
-    sys.path.insert(0, current_dir)
-
-# Ensure fixed_modules can be imported
-fixed_modules_dir = os.path.join(current_dir, 'fixed_modules')
-if fixed_modules_dir not in sys.path:
-    sys.path.insert(0, fixed_modules_dir)
-
-# Add path for simulator import
-simulator_dir = os.path.abspath(os.path.join(current_dir, '..', '..', 'nv_simulator'))
-if simulator_dir not in sys.path:
-    sys.path.insert(0, simulator_dir)
-
 def prepare_environment():
     """Prepare the environment for testing."""
     logger.info("Preparing test environment...")
     
-    # Create results directory
-    results_dir = os.path.join(current_dir, 'results')
-    os.makedirs(results_dir, exist_ok=True)
+    # Environment already set up in env_setup.py
+    results_dir = env_info['results_dir']
     
-    # First check if we can import core modules directly
+    # Make sure the QudiFacade singleton is reset
+    try:
+        from qudi.hardware.nv_simulator.qudi_facade import QudiFacade
+        QudiFacade.reset_instance()
+        logger.info("Reset QudiFacade singleton before tests")
+    except ImportError:
+        logger.warning("Could not import QudiFacade to reset singleton")
+    
+    # Check if we can import core modules directly
     core_modules_available = True
     try:
         from qudi.core.module import Base
@@ -78,10 +66,6 @@ def prepare_environment():
     except ImportError:
         core_modules_available = False
         logger.warning("Real Qudi core modules not available, will use mock implementation")
-        
-        # Add our fixed modules to the path for tests to use
-        if fixed_modules_dir not in sys.path:
-            sys.path.insert(0, fixed_modules_dir)
     
     return {
         'core_modules_available': core_modules_available,
@@ -153,10 +137,26 @@ def run_test(test_name):
     print(f"RUNNING TEST: {test_name}")
     print_separator()
     
+    # Reset QudiFacade singleton before each test
+    try:
+        from qudi.hardware.nv_simulator.qudi_facade import QudiFacade
+        QudiFacade.reset_instance()
+        logger.info(f"Reset QudiFacade singleton before {test_name} test")
+    except ImportError:
+        logger.warning("Could not import QudiFacade to reset singleton")
+    
     try:
         if test_name == 'mw_sampler_sync':
+            # Run only first test to avoid singleton issues
             import test_mw_sampler_sync
             test_mw_sampler_sync.test_direct_frequency_setting()
+            
+            # Reset singleton before second test
+            from qudi.hardware.nv_simulator.qudi_facade import QudiFacade
+            QudiFacade.reset_instance()
+            logger.info("Reset QudiFacade singleton between tests")
+            
+            # Run second test
             test_mw_sampler_sync.test_scan_mode_synchronization()
             logger.info("MW-Sampler sync test completed successfully")
             return True

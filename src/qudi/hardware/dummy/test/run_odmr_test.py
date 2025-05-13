@@ -27,11 +27,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
-# Add parent directory to path to import qudi modules
-current_dir = os.path.dirname(os.path.abspath(__file__))
-qudi_dir = os.path.abspath(os.path.join(current_dir, '../../../..'))
-if qudi_dir not in sys.path:
-    sys.path.insert(0, qudi_dir)
+# Import environment setup to ensure consistent test environment
+from env_setup import env_info
 
 # Import the test module
 from test_odmr_flow import run_odmr_flow_test, logger
@@ -258,14 +255,10 @@ def run_test_and_visualize():
         def patched_run_test():
             """Patched version that ensures proper QudiFacade parameters"""
             try:
-                # Before running the test, verify QudiFacade is reset
-                # We don't need the test_mode patch anymore as it causes Qt property errors
+                # Before running the test, reset the QudiFacade singleton
                 from qudi.hardware.nv_simulator.qudi_facade import QudiFacade
-                
-                # Reset the singleton instance if it exists
-                if hasattr(QudiFacade, '_instance') and QudiFacade._instance is not None:
-                    QudiFacade._instance = None
-                    print("Reset QudiFacade singleton for clean test")
+                QudiFacade.reset_instance()
+                print("Reset QudiFacade singleton for clean test")
                 
                 # Now run the original test
                 original_run_test()

@@ -30,11 +30,8 @@ import logging
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Add parent directory to path to import qudi modules
-current_dir = os.path.dirname(os.path.abspath(__file__))
-qudi_dir = os.path.abspath(os.path.join(current_dir, '../../../..'))
-if qudi_dir not in sys.path:
-    sys.path.insert(0, qudi_dir)
+# Import environment setup to ensure consistent test environment
+from env_setup import env_info
 
 from qudi.hardware.nv_simulator.qudi_facade import QudiFacade
 from qudi.hardware.nv_simulator.microwave_device import NVSimMicrowaveDevice

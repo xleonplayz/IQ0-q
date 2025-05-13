@@ -341,3 +341,37 @@ class MicrowaveDummy(MicrowaveInterface):
             if self._is_scanning:
                 self.log.debug('Frequency scan soft reset')
                 time.sleep(0.5)
+                
+    def scan_next(self):
+        """Move to the next frequency in the scan.
+        This method is added for compatibility with NVSimMicrowaveDevice.
+        It advances to the next frequency in the frequency list rather than
+        resetting to the beginning.
+        
+        @return bool: False if end of sequence reached, True otherwise
+        """
+        with self._thread_lock:
+            if not self._is_scanning:
+                self.log.warning("scan_next called but not scanning")
+                return False
+            
+            # Simple implementation - just advance an internal counter for now
+            # In a real implementation, this would change the actual frequency
+            if not hasattr(self, "_scan_index"):
+                self._scan_index = 0
+                
+            self._scan_index += 1
+            
+            # Check if we've reached the end of the scan
+            if self._scan_mode == SamplingOutputMode.EQUIDISTANT_SWEEP:
+                _, _, num_points = self._scan_frequencies
+                if self._scan_index >= num_points:
+                    self._scan_index = 0  # Reset for next scan
+                    return False
+            else:  # JUMP_LIST
+                if self._scan_index >= len(self._scan_frequencies):
+                    self._scan_index = 0  # Reset for next scan
+                    return False
+                    
+            # Return True if there are more frequencies
+            return True

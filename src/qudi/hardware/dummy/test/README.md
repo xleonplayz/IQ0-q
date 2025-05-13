@@ -14,20 +14,42 @@ This directory contains test scripts to diagnose communication issues between th
 1. **Module Import Error**: Fixed missing `qudi_main_weakref` and `name` parameters in all modules
 2. **Base Class Availability**: Added mock implementations of Qudi core classes in `fixed_modules/`
 3. **Missing Logging**: Ensured logging is properly configured for all test modules
-4. **Singleton Initialization Error**: Fixed QudiFacade singleton issues for running multiple tests
-5. **API Compatibility**: Made modules work with both older and newer Qudi versions
+4. **Singleton Initialization Error**: Added environment variable control and singleton reset method
+5. **Missing scan_next Method**: Added scan_next() method to microwave_dummy for compatibility
+6. **Multiple Test Issues**: Modified test runner to reset singleton between tests
+7. **Environment Setup**: Added centralized environment setup script for consistency
 
 ## Running the Tests
 
-### Recommended Method (Works with or without Qudi installed)
+### Recommended Method
+
+Use the provided scripts which set the necessary environment variables:
+
+Windows:
+```
+start_tests.bat
+```
+
+Linux/Mac:
+```
+./env_setup.sh
+```
+
+### Alternative Method (Works on all platforms)
 
 Use the unified test runner:
 
 ```bash
-# Run all tests
+# Set environment variable first (Windows)
+SET QUDI_NV_TEST_MODE=1
+
+# Set environment variable first (Linux/Mac)
+export QUDI_NV_TEST_MODE=1
+
+# Then run tests
 python test_runner.py all
 
-# Run specific test(s)
+# Or specific test(s)
 python test_runner.py mw_sampler_sync odmr_flow
 ```
 
@@ -64,11 +86,25 @@ If you encounter errors:
 
 ## ODMR GUI Fix
 
-If your ODMR GUI is showing a flat line instead of resonance dips, the primary issue was identified:
+If your ODMR GUI is showing a flat line instead of resonance dips, these issues have been fixed:
 
-1. The ODMR logic was calling `reset_scan()` after each data point, which resets to the first frequency
-2. Instead, it needs to call `scan_next()` to move through all frequencies in the scan sequence
-3. The fix modifies `odmr_logic.py` to use `scan_next()` when available, maintaining backward compatibility
+1. **Main Issue**: The ODMR logic was calling `reset_scan()` after each data point, which resets to the first frequency. It now calls `scan_next()` when available to properly step through the frequency list.
+
+2. **Compatibility Fix**: Added `scan_next()` method to the dummy microwave device for compatibility with the NV simulator.
+
+3. **Singleton Management**: Added proper singleton reset capability to avoid initialization conflicts.
+
+4. **Test Environment**: Added environment variable control to allow tests to create new instances.
+
+The most important change is in `odmr_logic.py`, which now has this improved code:
+
+```python
+# Instead of just calling reset_scan()
+if hasattr(self._microwave(), 'scan_next'):
+    self._microwave().scan_next()  # Move to next frequency
+else:
+    self._microwave().reset_scan()  # Fall back for backward compatibility
+```
 
 ## Mock Modules (fixed_modules/)
 

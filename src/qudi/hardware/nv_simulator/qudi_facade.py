@@ -461,14 +461,26 @@ class QudiFacade(MicrowaveInterface):
     }
     
     def __new__(cls, *args, **kwargs):
-        """Implement singleton pattern without test mode option.
-        The test_mode option causes problems with Qt property system in real Qudi.
-        """        
+        """Implement singleton pattern with reset capability for tests.
+        """
+        # Check if the environment variable is set for testing
+        import os
+        run_as_test = os.environ.get('QUDI_NV_TEST_MODE', '0') == '1'
+        
+        # For testing: completely new instance to avoid singleton conflicts
+        if run_as_test:
+            return super(QudiFacade, cls).__new__(cls)
+        
         # Normal singleton behavior
         if cls._instance is None:
             cls._instance = super(QudiFacade, cls).__new__(cls)
             cls._instance._initialized = False
         return cls._instance
+        
+    @classmethod
+    def reset_instance(cls):
+        """Reset the singleton instance (for testing)."""
+        cls._instance = None
     
     def __init__(self, qudi_main_weakref=None, name=None, **kwargs):
         """Initialize the QudiFacade with optional Qudi main reference and name.
