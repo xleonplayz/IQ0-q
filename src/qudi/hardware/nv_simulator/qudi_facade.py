@@ -329,34 +329,49 @@ class QudiFacade(MicrowaveInterface):
         """Initialization performed during activation of the module."""
         # Only initialize once
         if self._initialized:
+            self.log.info("QudiFacade already initialized, returning")
             return
             
         self._initialized = True
+        self.log.info("Initializing QudiFacade with parameters")
         
-        # Create the NV model with options from config
-        model_params = {
-            'zero_field_splitting': self._zero_field_splitting,
-            'gyromagnetic_ratio': self._gyromagnetic_ratio,
-            't1': self._t1,
-            't2': self._t2,
-            'thread_safe': self._thread_safe,
-            'memory_management': self._memory_management,
-            'optimize_performance': self._optimize_performance
-        }
-        
-        self.nv_model = PhysicalNVModel(**model_params)
-        
-        # Set magnetic field from config
-        self.nv_model.set_magnetic_field(self._magnetic_field)
-        
-        # Set temperature from config
-        self.nv_model.set_temperature(self._temperature)
-        
-        # Create controllers
-        self.laser_controller = LaserController(self.nv_model)
-        self.microwave_controller = MicrowaveController(self.nv_model)
-        self.pulse_controller = PulseController(self.nv_model)
-        self.confocal_simulator = ConfocalSimulator(self.nv_model)
+        try:
+            # Create the NV model with options from config
+            model_params = {
+                'zero_field_splitting': self._zero_field_splitting,
+                'gyromagnetic_ratio': self._gyromagnetic_ratio,
+                't1': self._t1,
+                't2': self._t2,
+                'thread_safe': self._thread_safe,
+                'memory_management': self._memory_management,
+                'optimize_performance': self._optimize_performance
+            }
+            
+            self.log.info(f"Creating PhysicalNVModel with magnetic field: {self._magnetic_field} Gauss")
+            
+            # Create the NV model with parameters
+            self.nv_model = PhysicalNVModel(**model_params)
+            
+            # Set magnetic field from config (convert Gauss to Tesla)
+            b_field_tesla = [b * 1e-4 for b in self._magnetic_field]  # 1 G = 1e-4 T
+            self.log.info(f"Setting magnetic field to {b_field_tesla} Tesla (from {self._magnetic_field} Gauss)")
+            self.nv_model.set_magnetic_field(b_field_tesla)
+            
+            # Set temperature from config
+            self.log.info(f"Setting temperature to {self._temperature} K")
+            self.nv_model.set_temperature(self._temperature)
+            
+            # Create controllers
+            self.laser_controller = LaserController(self.nv_model)
+            self.microwave_controller = MicrowaveController(self.nv_model)
+            self.pulse_controller = PulseController(self.nv_model)
+            self.confocal_simulator = ConfocalSimulator(self.nv_model)
+            
+            self.log.info("QudiFacade initialization complete")
+        except Exception as e:
+            self.log.error(f"Error during QudiFacade initialization: {str(e)}")
+            self._initialized = False
+            raise
         
         # Microwave interface implementation state variables
         self._is_scanning = False

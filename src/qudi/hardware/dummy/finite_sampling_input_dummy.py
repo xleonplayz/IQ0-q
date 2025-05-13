@@ -233,14 +233,40 @@ class FiniteSamplingInputDummy(FiniteSamplingInputInterface):
         if length < 3:
             self.__simulate_random(length)
             return
+            
+        # Simulierte ODMR mit 500 Gauss Zeeman-Splitting
         gamma = 2
         data = dict()
         x = np.arange(length, dtype=np.float64)
+        
+        # Base parameters
+        base = 200000  # Base fluorescence count
+        contrast = 0.3  # 30% contrast
+        linewidth = 5.0  # Linewidth parameter
+        
         for ch in self._active_channels:
-            offset = ((np.random.rand() - 0.5) * 0.05 + 1) * 200000
-            pos = length / 2 + (np.random.rand() - 0.5) * length / 10
-            amp = offset / 20
-            noise = amp / 2
-            data[ch] = offset + (np.random.rand(length) - 0.5) * noise - amp * gamma ** 2 / (
-                    (x - pos) ** 2 + gamma ** 2)
+            # Add some random variation
+            offset = ((np.random.rand() - 0.5) * 0.05 + 1) * base
+            noise_level = offset * 0.02  # 2% noise
+            
+            # Create two dips for Zeeman splitting (500 G ~ 1.4 GHz)
+            zero_field = 2.87e9  # Zero-field splitting in Hz
+            zeeman_shift = 2.8e6 * 500  # 2.8 MHz/G * 500 G = 1.4 GHz
+            
+            # Map frequency range to array indices 
+            freq_range = 2.0e9  # Typical MW scan range (2 GHz)
+            pos_center = length / 2  # Center position (corresponds to zero_field)
+            scaling = length / freq_range  # Convert Hz to array index units
+            
+            # Positions for two resonance dips
+            pos1 = pos_center - zeeman_shift * scaling / 2  # ms=0 to ms=-1
+            pos2 = pos_center + zeeman_shift * scaling / 2  # ms=0 to ms=+1
+            
+            # Create two Lorentzian dips
+            dip1 = contrast * gamma**2 / ((x - pos1)**2 + gamma**2)
+            dip2 = contrast * gamma**2 / ((x - pos2)**2 + gamma**2)
+            
+            # Combine dips and add noise
+            data[ch] = offset * (1.0 - dip1 - dip2) + (np.random.rand(length) - 0.5) * noise_level
+            
         self.__simulated_samples = data

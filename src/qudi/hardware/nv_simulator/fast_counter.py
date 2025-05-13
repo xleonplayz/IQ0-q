@@ -82,8 +82,15 @@ class NVSimFastCounter(FastCounterInterface):
 
     def on_activate(self):
         """Initialisation performed during activation of the module."""
-        # Get the QudiFacade instance from the simulator connector
-        self._qudi_facade = self.simulator()
+        try:
+            # Get the QudiFacade instance from the simulator connector
+            self._qudi_facade = self.simulator()
+        except Exception as e:
+            self.log.error(f"Failed to get QudiFacade from connector: {str(e)}")
+            # Fallback to direct instantiation
+            from qudi_facade import QudiFacade
+            self._qudi_facade = QudiFacade()
+            self.log.info("Using directly instantiated QudiFacade as fallback")
         
         # Set status to idle
         self._statusvar = 0
