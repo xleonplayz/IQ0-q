@@ -411,16 +411,30 @@ class QudiFacade(MicrowaveInterface):
             self.log.info(f"Creating PhysicalNVModel with magnetic field: {self._magnetic_field} Gauss")
             
             # Create the NV model with parameters
-            self.nv_model = PhysicalNVModel(**model_params)
-            
-            # Set magnetic field from config (convert Gauss to Tesla)
-            b_field_tesla = [b * 1e-4 for b in self._magnetic_field]  # 1 G = 1e-4 T
-            self.log.info(f"Setting magnetic field to {b_field_tesla} Tesla (from {self._magnetic_field} Gauss)")
-            self.nv_model.set_magnetic_field(b_field_tesla)
-            
-            # Set temperature from config
-            self.log.info(f"Setting temperature to {self._temperature} K")
-            self.nv_model.set_temperature(self._temperature)
+            try:
+                self.nv_model = PhysicalNVModel(**model_params)
+                
+                # Set magnetic field from config (convert Gauss to Tesla)
+                b_field_tesla = [b * 1e-4 for b in self._magnetic_field]  # 1 G = 1e-4 T
+                self.log.info(f"Setting magnetic field to {b_field_tesla} Tesla (from {self._magnetic_field} Gauss)")
+                self.nv_model.set_magnetic_field(b_field_tesla)
+                
+                # Set temperature from config
+                self.log.info(f"Setting temperature to {self._temperature} K")
+                self.nv_model.set_temperature(self._temperature)
+                self.log.info("NV model initialized successfully")
+            except Exception as e:
+                self.log.error(f"Error initializing NV model: {e}")
+                self.log.warning("Creating simplified fallback NV model")
+                
+                # Create a simplified NV model as fallback
+                from ..dummy.nv_simple_model import SimpleNVModel
+                self.nv_model = SimpleNVModel(
+                    magnetic_field=self._magnetic_field,
+                    temperature=self._temperature,
+                    zero_field_splitting=self._zero_field_splitting
+                )
+                self.log.info("Simplified NV model created")
             
             # Create controllers
             self.laser_controller = LaserController(self.nv_model)

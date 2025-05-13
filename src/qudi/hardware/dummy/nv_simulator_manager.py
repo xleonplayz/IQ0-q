@@ -96,23 +96,39 @@ class NVSimulatorManager:
             # Initialize the NV model
             try:
                 # Import the PhysicalNVModel class
-                from model import PhysicalNVModel
-                
-                # Convert Gauss to Tesla
-                b_field_tesla = [b * 1e-4 for b in magnetic_field]  # 1 G = 1e-4 T
-                
-                # Create the NV model
-                self.nv_model = PhysicalNVModel(optics=True, nitrogen=False)
-                
-                # Set parameters
-                self.nv_model.set_magnetic_field(b_field_tesla)
-                self.nv_model.set_temperature(temperature)
-                self.nv_model.config["d_gs"] = zero_field_splitting
-                
-                logger.info(f"NV simulator initialized with magnetic field {magnetic_field} G, " 
-                           f"temperature {temperature} K, ZFS {zero_field_splitting/1e9} GHz")
+                try:
+                    from model import PhysicalNVModel
+                    
+                    # Convert Gauss to Tesla
+                    b_field_tesla = [b * 1e-4 for b in magnetic_field]  # 1 G = 1e-4 T
+                    
+                    # Create the NV model
+                    self.nv_model = PhysicalNVModel(optics=True, nitrogen=False)
+                    
+                    # Set parameters
+                    self.nv_model.set_magnetic_field(b_field_tesla)
+                    self.nv_model.set_temperature(temperature)
+                    self.nv_model.config["d_gs"] = zero_field_splitting
+                    
+                    logger.info(f"NV simulator initialized with magnetic field {magnetic_field} G, " 
+                               f"temperature {temperature} K, ZFS {zero_field_splitting/1e9} GHz")
+                except Exception as e:
+                    logger.warning(f"PhysicalNVModel initialization failed: {e}")
+                    logger.info("Falling back to SimpleNVModel")
+                    
+                    # Import the simplified model
+                    from nv_simple_model import SimpleNVModel
+                    
+                    # Create a simple NV model
+                    self.nv_model = SimpleNVModel(
+                        magnetic_field=magnetic_field,
+                        temperature=temperature,
+                        zero_field_splitting=zero_field_splitting
+                    )
+                    
+                    logger.info(f"SimpleNVModel initialized with magnetic field {magnetic_field} G")
             except Exception as e:
-                raise RuntimeError(f"Failed to initialize NV simulator: {e}")
+                raise RuntimeError(f"Failed to initialize any NV model: {e}")
     
     def set_magnetic_field(self, field_gauss: List[float]):
         """Set the magnetic field vector.
