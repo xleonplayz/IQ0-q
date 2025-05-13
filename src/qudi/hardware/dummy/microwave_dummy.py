@@ -84,8 +84,9 @@ class MicrowaveDummy(MicrowaveInterface):
         self._nv_sim = None
         if self._use_nv_simulator:
             try:
-                from nv_simulator_manager import NVSimulatorManager
-                self._nv_sim = NVSimulatorManager(
+                # Use relative import for nv_simulator_manager
+                from . import nv_simulator_manager
+                self._nv_sim = nv_simulator_manager.NVSimulatorManager(
                     magnetic_field=self._magnetic_field,
                     temperature=self._temperature,
                     use_simulator=True
@@ -96,6 +97,22 @@ class MicrowaveDummy(MicrowaveInterface):
             except ImportError as e:
                 self.log.warning(f"Could not import NV simulator manager: {e}")
                 self.log.warning("NV simulator integration disabled")
+                # Fallback direct import attempt
+                try:
+                    import os
+                    import sys
+                    current_dir = os.path.dirname(os.path.abspath(__file__))
+                    if current_dir not in sys.path:
+                        sys.path.insert(0, current_dir)
+                    from nv_simulator_manager import NVSimulatorManager
+                    self._nv_sim = NVSimulatorManager(
+                        magnetic_field=self._magnetic_field,
+                        temperature=self._temperature,
+                        use_simulator=True
+                    )
+                    self.log.info("NV simulator integration enabled for microwave_dummy (fallback import)")
+                except ImportError:
+                    self.log.warning("Fallback import also failed - NV simulator integration disabled")
             except Exception as e:
                 self.log.warning(f"Failed to initialize NV simulator: {e}")
                 self.log.warning("NV simulator integration disabled")

@@ -108,8 +108,9 @@ class FiniteSamplingInputDummy(FiniteSamplingInputInterface):
         self._nv_sim = None
         if self._use_nv_simulator:
             try:
-                from nv_simulator_manager import NVSimulatorManager
-                self._nv_sim = NVSimulatorManager(
+                # Use relative import for nv_simulator_manager
+                from . import nv_simulator_manager
+                self._nv_sim = nv_simulator_manager.NVSimulatorManager(
                     magnetic_field=self._magnetic_field,
                     temperature=self._temperature,
                     use_simulator=True
@@ -119,7 +120,23 @@ class FiniteSamplingInputDummy(FiniteSamplingInputInterface):
                               f"temperature {self._temperature} K")
             except ImportError as e:
                 self.log.warning(f"Could not import NV simulator manager: {e}")
-                self.log.warning("Using fallback simulation model instead")
+                self.log.warning("Trying fallback import...")
+                # Fallback direct import attempt
+                try:
+                    import os
+                    import sys
+                    current_dir = os.path.dirname(os.path.abspath(__file__))
+                    if current_dir not in sys.path:
+                        sys.path.insert(0, current_dir)
+                    from nv_simulator_manager import NVSimulatorManager
+                    self._nv_sim = NVSimulatorManager(
+                        magnetic_field=self._magnetic_field,
+                        temperature=self._temperature,
+                        use_simulator=True
+                    )
+                    self.log.info("NV simulator integration enabled for finite_sampling_input_dummy (fallback import)")
+                except ImportError:
+                    self.log.warning("Fallback import also failed - Using fallback simulation model instead")
             except Exception as e:
                 self.log.warning(f"Failed to initialize NV simulator: {e}")
                 self.log.warning("Using fallback simulation model instead")
