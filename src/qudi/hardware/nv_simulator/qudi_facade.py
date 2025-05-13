@@ -618,8 +618,26 @@ class QudiFacade(MicrowaveInterface):
         # Reset shared state
         self._shared_state['current_scan_index'] = 0
         self._shared_state['scanning_active'] = False
+        self._shared_state['current_mw_on'] = False
         
         self.log.info("NV Simulator reset to initial state")
+        
+    @classmethod
+    def force_reset_shared_state(cls):
+        """Force reset of shared state (for testing when things get stuck).
+        This is a special method for emergency cleanup.
+        """
+        cls._shared_state = {
+            'current_mw_frequency': 2.87e9,  # Hz
+            'current_mw_power': -20.0,       # dBm
+            'current_mw_on': False,          # MW on/off state
+            'current_laser_power': 0.0,      # mW
+            'current_laser_on': False,       # Laser on/off state
+            'scanning_active': False,        # Is scanning in progress
+            'current_scan_index': 0,         # Current index in scan
+            'scan_frequencies': None,        # List of frequencies for scanning
+        }
+        print("[CRITICAL] Forced reset of QudiFacade shared state!")
         
     # Methods for accessing shared state - these are key for inter-module communication
     

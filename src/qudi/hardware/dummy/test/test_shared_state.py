@@ -408,18 +408,21 @@ if __name__ == "__main__":
     # Run all tests
     try:
         test_direct_shared_state_update()
+        QudiFacade.force_reset_shared_state()
         QudiFacade.reset_instance()  # Reset singleton between tests
     except Exception as e:
         logger.exception(f"Error in direct shared state test: {e}")
     
     try:
         test_microwave_controller_update()
+        QudiFacade.force_reset_shared_state()
         QudiFacade.reset_instance()  # Reset singleton between tests
     except Exception as e:
         logger.exception(f"Error in microwave controller test: {e}")
     
     try:
         test_scan_frequency_update()
+        QudiFacade.force_reset_shared_state()
         QudiFacade.reset_instance()  # Reset singleton between tests
     except Exception as e:
         logger.exception(f"Error in scan frequency test: {e}")

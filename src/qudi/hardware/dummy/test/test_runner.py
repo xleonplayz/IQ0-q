@@ -181,9 +181,55 @@ def run_test(test_name):
             return True
         elif test_name == 'frequency_chain':
             import test_frequency_chain
-            # Individual tests have their own singleton reset
+            # Ensure any previous microwave output is off
+            try:
+                from qudi.hardware.nv_simulator.qudi_facade import QudiFacade
+                from qudi.hardware.nv_simulator.microwave_device import NVSimMicrowaveDevice
+                
+                # Clean environment - this ensures no active microwave output
+                qudi_facade = QudiFacade(name="CleanUp")
+                qudi_facade.on_activate()
+                
+                class DummyConnector:
+                    def __init__(self, module_instance):
+                        self._module = module_instance
+                    def __call__(self):
+                        return self._module
+                
+                # Initialize and immediately turn off microwave
+                mw = NVSimMicrowaveDevice(name="CleanupMW")
+                mw.simulator = DummyConnector(qudi_facade)
+                mw.on_activate()
+                
+                # Force microwave off and log it
+                logger.critical("[CRITICAL DEBUG] Turning MW OFF")
+                mw.off()
+                
+                # Clean up
+                mw.on_deactivate()
+                qudi_facade.on_deactivate()
+                
+                # Reset singleton and force reset shared state
+                QudiFacade.force_reset_shared_state()
+                QudiFacade.reset_instance()
+                logger.info("Reset environment and turned off microwave before frequency chain tests")
+            except Exception as e:
+                logger.error(f"Error cleaning environment: {e}")
+                
+            # Individual tests now have clean environment
             test_frequency_chain.test_direct_scan_next()
+            
+            # Reset again between tests
+            from qudi.hardware.nv_simulator.qudi_facade import QudiFacade
+            QudiFacade.force_reset_shared_state()
+            QudiFacade.reset_instance()
+            
             test_frequency_chain.test_scan_next_implementation()
+            
+            # Reset again for the final test
+            QudiFacade.force_reset_shared_state()
+            QudiFacade.reset_instance()
+            
             test_frequency_chain.test_odmr_logic_scan()
             logger.info("Frequency chain tests completed successfully")
             return True

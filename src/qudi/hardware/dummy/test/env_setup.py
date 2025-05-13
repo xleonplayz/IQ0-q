@@ -60,8 +60,9 @@ def setup_environment():
     # Reset QudiFacade singleton before each test
     try:
         from qudi.hardware.nv_simulator.qudi_facade import QudiFacade
+        QudiFacade.force_reset_shared_state()
         QudiFacade.reset_instance()
-        logger.info("Reset QudiFacade singleton")
+        logger.info("Reset QudiFacade singleton and shared state")
     except ImportError:
         logger.warning("Could not import QudiFacade to reset singleton")
     

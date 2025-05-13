@@ -37,6 +37,9 @@ from qudi.hardware.nv_simulator.qudi_facade import QudiFacade
 from qudi.hardware.nv_simulator.microwave_device import NVSimMicrowaveDevice
 from qudi.hardware.nv_simulator.finite_sampler import NVSimFiniteSampler
 
+# Get current directory for saving files
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
 # Configure logging
 logging.basicConfig(
     level=logging.DEBUG,
@@ -159,7 +162,7 @@ def test_direct_frequency_setting():
         plt.legend()
         
         # Save the figure
-        output_dir = os.path.join(current_dir, 'results')
+        output_dir = os.path.join(os.path.dirname(__file__), 'results')
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f'mw_sampler_sync_test_{time.strftime("%Y%m%d_%H%M%S")}.png')
         plt.savefig(output_path)
@@ -289,7 +292,7 @@ def test_scan_mode_synchronization():
         plt.legend()
         
         # Save the figure
-        output_dir = os.path.join(current_dir, 'results')
+        output_dir = os.path.join(os.path.dirname(__file__), 'results')
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f'scan_mode_test_{time.strftime("%Y%m%d_%H%M%S")}.png')
         plt.savefig(output_path)

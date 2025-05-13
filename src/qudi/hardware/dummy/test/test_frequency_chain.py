@@ -566,12 +566,14 @@ if __name__ == "__main__":
     # Run all tests
     try:
         test_direct_scan_next()
+        QudiFacade.force_reset_shared_state()
         QudiFacade.reset_instance()  # Reset singleton between tests
     except Exception as e:
         logger.exception(f"Error in direct scan next test: {e}")
         
     try:
         test_scan_next_implementation()
+        QudiFacade.force_reset_shared_state()
         QudiFacade.reset_instance()  # Reset singleton between tests
     except Exception as e:
         logger.exception(f"Error in scan next implementation test: {e}")
