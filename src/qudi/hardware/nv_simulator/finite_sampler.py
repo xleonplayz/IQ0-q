@@ -82,10 +82,9 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
         """Initialization performed during activation of the module."""
         # Define hardware constraints
         self._constraints = FiniteSamplingInputConstraints(
-            channels=list(self._channel_units.keys()),
-            sample_rate_limits=self._sample_rate_limits,
+            channel_units=self._channel_units,
             frame_size_limits=self._frame_size_limits,
-            channel_units=self._channel_units
+            sample_rate_limits=self._sample_rate_limits
         )
         
         try:
@@ -291,7 +290,7 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
             self._current_sample_rate = rate
             return True
             
-    def set_frame_size(self, frame_size):
+    def set_frame_size(self, size):
         """Set the number of samples to acquire per channel.
 
         @param int frame_size: Number of samples
@@ -301,11 +300,11 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
                 self.log.error("Cannot set frame size while acquisition is running")
                 return False
                 
-            if not self._frame_size_limits[0] <= frame_size <= self._frame_size_limits[1]:
-                self.log.error(f"Frame size {frame_size} out of range: {self._frame_size_limits}")
+            if not self._frame_size_limits[0] <= size <= self._frame_size_limits[1]:
+                self.log.error(f"Frame size {size} out of range: {self._frame_size_limits}")
                 return False
                 
-            self._current_frame_size = frame_size
+            self._current_frame_size = size
             return True
             
     def samples_in_buffer(self):

@@ -22,10 +22,10 @@ class PhysicalNVModel:
     Main physical model for the NV center simulator.
     
     This class provides a physically accurate model of NV center dynamics
-    for use in quantum simulations.
+    for use in quantum simulations, based on the SimOS quantum simulator engine.
     """
     
-    def __init__(self, optics=True, nitrogen=False, method="matrix", **kwargs):
+    def __init__(self, optics=True, nitrogen=False, method="qutip", **kwargs):
         """
         Initialize the physical model with configurable options.
         
@@ -36,49 +36,122 @@ class PhysicalNVModel:
         nitrogen : bool, optional
             Include nitrogen nuclear spin
         method : str, optional
-            Simulation method, one of: "matrix", "qutip"
+            Simulation method, one of: "matrix", "qutip" (recommended)
+        
+        Additional Parameters
+        --------------------
+        zero_field_splitting : float, optional
+            Zero-field splitting (D) in Hz, default: 2.87 GHz
+        gyromagnetic_ratio : float, optional
+            Electron gyromagnetic ratio in Hz/T, default: 28.025 GHz/T
+        strain : float or array, optional
+            Strain component or vector in Hz
+        temperature : float, optional
+            Temperature in Kelvin, default: 300K
+        t1 : float, optional
+            T1 relaxation time in seconds, default: 5ms
+        t2 : float, optional
+            T2 dephasing time in seconds, default: 10μs
+        c13_concentration : float, optional
+            13C concentration, default: 0.011 (natural abundance)
+        thread_safe : bool, optional
+            Whether to use thread locking, default: True
         """
         # Configuration
         self.config = {
             "optics": optics,
             "nitrogen": nitrogen,
             "method": method,
-            "d_gs": 2.87e9,  # Zero-field splitting (Hz)
-            "gyro_e": 28.025e9,  # Gyromagnetic ratio (Hz/T) 
-            "t1": 5.0e-3,    # T1 relaxation time (s)
-            "t2": 1.0e-5     # T2 dephasing time (s)
+            "d_gs": kwargs.get("zero_field_splitting", 2.87e9),  # Zero-field splitting (Hz)
+            "gyro_e": kwargs.get("gyromagnetic_ratio", 28.025e9),  # Gyromagnetic ratio (Hz/T)
+            "t1": kwargs.get("t1", 5.0e-3),    # T1 relaxation time (s)
+            "t2": kwargs.get("t2", 1.0e-5),     # T2 dephasing time (s)
+            "strain": kwargs.get("strain", 0.0),  # Strain in Hz
+            "temperature": kwargs.get("temperature", 300.0),  # Temperature in K
+            "c13_concentration": kwargs.get("c13_concentration", 0.011),  # 13C concentration
         }
         
         # Update with any additional kwargs
-        self.config.update(kwargs)
+        self.config.update({k: v for k, v in kwargs.items() if k not in self.config})
         
         # Thread safety
-        self.lock = threading.RLock()
+        self.lock = threading.RLock() if kwargs.get("thread_safe", True) else DummyLock()
         
         # Initialize magnetic field (Tesla)
         self.b_field = np.array([0.0, 0.0, 0.0])
         
         # Initialize state
         self.state = None
-        self.reset_state()
+        self._simos_initialized = False
+        
+        # Runtime parameters
+        self._collection_efficiency = 1.0
+        self._microwave_frequency = self.config["d_gs"]  # Default to zero-field splitting
+        self._microwave_amplitude = 0.0
+        self._laser_power = 0.0
         
         # Initialize nuclear environment
         self._nuclear_enabled = False
         self.nuclear_bath = []
         self.decoherence_model = None
         
-        # Runtime parameters
-        self._collection_efficiency = 1.0
-        self._microwave_frequency = 2.87e9
-        self._microwave_amplitude = 0.0
-        self._laser_power = 0.0
+        # Try to initialize SimOS immediately
+        try:
+            self._initialize_simos()
+        except ImportError:
+            logger.warning("SimOS not available during initialization - will try later")
+        except Exception as e:
+            logger.warning(f"Failed to initialize SimOS: {e}")
+        
+        # Reset the state
+        self.reset_state()
         
         logger.info(f"NV Model initialized with {method} method, optics={optics}")
-    
-    def reset_state(self):
-        """Reset the NV state to the ground state |0⟩"""
-        with self.lock:
+        
+    def _initialize_simos(self):
+        """Initialize the SimOS quantum simulation backend if not already done."""
+        if not self._simos_initialized:
             try:
+                # Import SimOS components
+                from sim.simos.simos import core, coherent, states
+                from sim.simos.simos.systems import NV
+                
+                # Store references
+                self._simos_core = core
+                self._simos_coherent = coherent
+                self._simos_states = states
+                self._simos_nv = NV
+                
+                # Create NV system with appropriate parameters
+                self._simos_nv_system = NV.NVSystem(
+                    optics=self.config["optics"], 
+                    nitrogen=self.config["nitrogen"], 
+                    method=self.config["method"]
+                )
+                
+                # Additional parameter import for SimOS
+                self._simos_hbar = 1.0545718e-34  # reduced Planck's constant in J·s
+                self._simos_mub = 9.2740100783e-24  # Bohr magneton in J/T
+                self._simos_kB = 1.380649e-23  # Boltzmann constant in J/K
+                
+                # Mark as initialized
+                self._simos_initialized = True
+                logger.info("SimOS quantum simulation engine initialized successfully")
+                
+            except ImportError as e:
+                logger.error(f"Could not import SimOS components: {e}")
+                raise
+            except Exception as e:
+                logger.error(f"Failed to initialize SimOS NV system: {e}")
+                raise
+
+# Dummy lock for non-thread-safe operation
+class DummyLock:
+    def __enter__(self):
+        return self
+        
+    def __exit__(self, *args):
+        pass
                 # Initialize proper quantum state with SimOS
                 from sim.simos.simos import core, states
                 from sim.simos.simos.systems import NV
