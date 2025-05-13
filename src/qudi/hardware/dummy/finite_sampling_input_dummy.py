@@ -263,11 +263,19 @@ class FiniteSamplingInputDummy(FiniteSamplingInputInterface):
         # Generate data for each active channel
         data = dict()
         
-        # Define frequency range for ODMR scan
-        zero_field = 2.87e9  # Zero-field splitting in Hz
-        freq_range = 2.0e9  # Typical MW scan range (2 GHz)
-        freq_min = zero_field - freq_range/2
-        freq_max = zero_field + freq_range/2
+        # Get current microwave settings from scan configuration
+        try:
+            from qudi.util.scanning_probe_logic import ScanningProbeLogic
+            
+            # ODMR typically scans around the resonance
+            # The microwave frequency range is determined by the ODMR logic
+            zero_field = 2.87e9  # Zero-field splitting in Hz (Default)
+            
+            # For 500G B-field, Zeeman splitting is ~1.4 GHz (2.8 MHz/G * 500G)
+            # So we need a wide range to capture both resonances
+            freq_range = 3.0e9  # Widened range to ensure we capture both dips (3 GHz)
+            freq_min = 1.8e9    # Start well below the lower dip (~1.47 GHz)
+            freq_max = 4.8e9    # End well above the upper dip (~4.27 GHz)
         
         self.log.debug(f"ODMR simulation requested with {length} frequency points from "
                      f"{freq_min/1e9:.3f} GHz to {freq_max/1e9:.3f} GHz")

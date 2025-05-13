@@ -126,14 +126,26 @@ class LaserController:
         self._is_on = False
         self._power = 1.0  # mW
         
+        # Update shared state
+        QudiFacade._shared_state['current_laser_power'] = self._power
+        QudiFacade._shared_state['current_laser_on'] = self._is_on
+        
     def on(self):
         """Turn on the laser."""
         self._is_on = True
+        
+        # Update shared state
+        QudiFacade._shared_state['current_laser_on'] = True
+        
         self.nv_model.set_laser_power(self._power)
         
     def off(self):
         """Turn off the laser."""
         self._is_on = False
+        
+        # Update shared state
+        QudiFacade._shared_state['current_laser_on'] = False
+        
         self.nv_model.set_laser_power(0.0)
         
     @property
@@ -148,8 +160,16 @@ class LaserController:
         @param power: float, laser power in mW
         """
         self._power = power
+        
+        # Update shared state
+        QudiFacade._shared_state['current_laser_power'] = power
+        
         if self._is_on:
             self.nv_model.set_laser_power(power)
+    
+    def get_power(self):
+        """Get the current laser power in mW."""
+        return self._power
 
 
 class ConfocalSimulator:
@@ -229,6 +249,11 @@ class MicrowaveController:
         self._power = 0.0  # dBm
         self._is_on = False
         
+        # Update shared state with initial values
+        QudiFacade._shared_state['current_mw_frequency'] = self._frequency
+        QudiFacade._shared_state['current_mw_power'] = self._power
+        QudiFacade._shared_state['current_mw_on'] = self._is_on
+        
     def set_frequency(self, frequency):
         """
         Set the microwave frequency.
@@ -237,6 +262,10 @@ class MicrowaveController:
         """
         print(f"[CRITICAL DEBUG] Setting MW frequency to {frequency/1e9:.6f} GHz")
         self._frequency = frequency
+        
+        # Update shared state
+        QudiFacade._shared_state['current_mw_frequency'] = frequency
+        
         if self._is_on:
             self._apply_microwave()
     
@@ -248,6 +277,10 @@ class MicrowaveController:
         """
         print(f"[CRITICAL DEBUG] Setting MW power to {power} dBm")
         self._power = power
+        
+        # Update shared state
+        QudiFacade._shared_state['current_mw_power'] = power
+        
         if self._is_on:
             self._apply_microwave()
     
@@ -255,12 +288,20 @@ class MicrowaveController:
         """Turn on the microwave."""
         print(f"[CRITICAL DEBUG] Turning MW ON at {self._frequency/1e9:.6f} GHz, {self._power} dBm")
         self._is_on = True
+        
+        # Update shared state
+        QudiFacade._shared_state['current_mw_on'] = True
+        
         self._apply_microwave()
     
     def off(self):
         """Turn off the microwave."""
         print(f"[CRITICAL DEBUG] Turning MW OFF")
         self._is_on = False
+        
+        # Update shared state
+        QudiFacade._shared_state['current_mw_on'] = False
+        
         self.nv_model.set_microwave_amplitude(0.0)
     
     def _apply_microwave(self):
@@ -274,6 +315,19 @@ class MicrowaveController:
         print(f"[CRITICAL DEBUG] Applying MW to NV model: {self._frequency/1e9:.6f} GHz, amp={amplitude}")
         self.nv_model.set_microwave_frequency(self._frequency)
         self.nv_model.set_microwave_amplitude(amplitude)
+        
+    # Accessor methods to get current state
+    def get_frequency(self):
+        """Get the current microwave frequency in Hz."""
+        return self._frequency
+    
+    def get_power(self):
+        """Get the current microwave power in dBm."""
+        return self._power
+    
+    def is_on(self):
+        """Check if the microwave is on."""
+        return self._is_on
 
 
 class PulseController:
@@ -373,6 +427,18 @@ class QudiFacade(MicrowaveInterface):
     _optimize_performance = ConfigOption('optimize_performance', default=True, missing='warn')
     
     _instance = None
+    
+    # Shared state for inter-module communication
+    _shared_state = {
+        'current_mw_frequency': 2.87e9,  # Hz
+        'current_mw_power': -20.0,       # dBm
+        'current_mw_on': False,          # MW on/off state
+        'current_laser_power': 0.0,      # mW
+        'current_laser_on': False,       # Laser on/off state
+        'scanning_active': False,        # Is scanning in progress
+        'current_scan_index': 0,         # Current index in scan
+        'scan_frequencies': None,        # List of frequencies for scanning
+    }
     
     def __new__(cls, *args, **kwargs):
         """Implement singleton pattern."""
@@ -510,7 +576,78 @@ class QudiFacade(MicrowaveInterface):
         # Reset the confocal position
         self.confocal_simulator.set_position(0, 0, 0)
         
+        # Reset shared state
+        self._shared_state['current_scan_index'] = 0
+        self._shared_state['scanning_active'] = False
+        
         self.log.info("NV Simulator reset to initial state")
+        
+    # Methods for accessing shared state - these are key for inter-module communication
+    
+    def get_current_frequency(self):
+        """Get the current microwave frequency in Hz.
+        This is used by other modules to synchronize with microwave device.
+        
+        @return float: Current frequency in Hz
+        """
+        return self._shared_state['current_mw_frequency']
+    
+    def get_current_power(self):
+        """Get the current microwave power in dBm.
+        
+        @return float: Current power in dBm
+        """
+        return self._shared_state['current_mw_power']
+    
+    def is_microwave_on(self):
+        """Check if the microwave is currently on.
+        
+        @return bool: True if on, False if off
+        """
+        return self._shared_state['current_mw_on']
+    
+    def get_laser_power(self):
+        """Get the current laser power in mW.
+        
+        @return float: Current laser power in mW
+        """
+        return self._shared_state['current_laser_power']
+    
+    def is_laser_on(self):
+        """Check if the laser is currently on.
+        
+        @return bool: True if on, False if off
+        """
+        return self._shared_state['current_laser_on']
+    
+    def is_scanning(self):
+        """Check if a frequency scan is in progress.
+        
+        @return bool: True if scanning, False otherwise
+        """
+        return self._shared_state['scanning_active']
+    
+    def get_current_scan_index(self):
+        """Get the current index in the frequency scan.
+        
+        @return int: Current scan index
+        """
+        return self._shared_state['current_scan_index']
+    
+    def set_scanning_status(self, active, scan_index=None, frequencies=None):
+        """Update the scanning status.
+        
+        @param bool active: Whether scanning is active
+        @param int scan_index: Current index in scan
+        @param list frequencies: List of scan frequencies
+        """
+        self._shared_state['scanning_active'] = active
+        
+        if scan_index is not None:
+            self._shared_state['current_scan_index'] = scan_index
+            
+        if frequencies is not None:
+            self._shared_state['scan_frequencies'] = frequencies
 
     # MicrowaveInterface implementation
     

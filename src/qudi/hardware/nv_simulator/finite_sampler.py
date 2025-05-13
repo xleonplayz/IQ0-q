@@ -397,16 +397,27 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
             if not self._is_running:
                 raise RuntimeError("Finite sampler is not running")
                 
-            # For the simulation, we generate a signal based on the current microwave parameters
-            # We use the QudiFacade to access the current microwave frequency and power
-            
-            # Get the current frequency from the microwave controller
-            # (this is set by the microwave device during ODMR scans)
-            mw_controller = self._qudi_facade.microwave_controller
-            current_freq = mw_controller._frequency
+            # Get the current frequency from the shared state - This is key for ODMR synchronization
+            current_freq = self._qudi_facade.get_current_frequency()
+            current_power = self._qudi_facade.get_current_power()
+            is_mw_on = self._qudi_facade.is_microwave_on()
             
             # Add extensive debug logging
-            self.log.info(f"ODMR sampling at frequency: {current_freq/1e9:.6f} GHz")
+            self.log.info(f"ODMR sampling at frequency: {current_freq/1e9:.6f} GHz, power: {current_power} dBm, MW on: {is_mw_on}")
+            
+            # If microwave is off, return baseline signal with noise
+            if not is_mw_on:
+                self.log.warning("Microwave is off, returning baseline signal only")
+                baseline = 100000.0  # 100k counts/s
+                result = {}
+                
+                for i, channel in enumerate(self._active_channels):
+                    # Create baseline signal with 2% noise
+                    noise = np.random.normal(0, 0.02 * baseline, self._current_frame_size)
+                    self._data_buffer[i, :] = baseline + noise
+                    result[channel] = self._data_buffer[i, :].copy()
+                
+                return result
             
             # Generate simulated fluorescence for ODMR
             # For simplicity, we use a Lorentzian dip for the resonance
@@ -435,24 +446,40 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
             baseline = 1.0
             
             # Compare current frequency to resonances
+            close_to_resonance = False
             if abs(current_freq - dip1_center) < 100e6 or abs(current_freq - dip2_center) < 100e6:
                 self.log.info(f"Close to resonance at {current_freq/1e9} GHz")
+                close_to_resonance = True
             
             # Lorentzian function for each dip
             dip1 = contrast * linewidth**2 / ((current_freq - dip1_center)**2 + linewidth**2)
             dip2 = contrast * linewidth**2 / ((current_freq - dip2_center)**2 + linewidth**2)
             
             # Calculate and log resonance depths at current frequency
+            dip_strength = dip1 + dip2  # Combined dip strength
             self.log.debug(f"Dip1 value: {dip1}, Dip2 value: {dip2} at freq: {current_freq/1e9} GHz")
             
+            # Power scaling - stronger MW power means deeper dips
+            # Convert dBm to mW for power scaling
+            power_mw = 10**(current_power/10) 
+            power_factor = min(1.0, power_mw / 10.0)  # Scale up to a maximum of 1.0
+            
+            # Apply power scaling to contrast
+            scaled_dip1 = dip1 * power_factor
+            scaled_dip2 = dip2 * power_factor
+            
             # Combine dips and scale to photon counts (typical rates for NV)
-            signal = (baseline - dip1 - dip2) * 100000.0  # ~100k counts/s
+            signal = (baseline - scaled_dip1 - scaled_dip2) * 100000.0  # ~100k counts/s
             
             # Add some noise (Poisson noise)
             sampling_time = 1.0 / self._current_sample_rate
             expected_counts = signal * sampling_time
             noise = np.random.poisson(expected_counts, self._current_frame_size)
             simulated_signal = noise / sampling_time
+            
+            # For debug purposes
+            if close_to_resonance:
+                self.log.info(f"Signal at resonance: {np.mean(simulated_signal):.1f} counts/s, contrast: {(scaled_dip1 + scaled_dip2):.3f}")
             
             # Fill the buffer with the simulated data
             self._data_buffer[0, :] = simulated_signal

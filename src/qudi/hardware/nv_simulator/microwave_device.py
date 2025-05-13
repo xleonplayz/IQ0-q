@@ -52,9 +52,10 @@ class NVSimMicrowaveDevice(MicrowaveInterface):
     """
 
     # Configuration options
-    _magnetic_field = ConfigOption('magnetic_field', default=[0, 0, 0], missing='warn')
+    _magnetic_field = ConfigOption('magnetic_field', default=[0, 0, 500], missing='warn')
     _temperature = ConfigOption('temperature', default=300, missing='warn')
     _fixed_startup_time = ConfigOption('fixed_startup_time', default=0.1, missing='warn')
+    _debug_mode = ConfigOption('debug_mode', default=True, missing='info')
     
     # Connector for simulator
     simulator = Connector(interface='MicrowaveInterface')
@@ -305,8 +306,11 @@ class NVSimMicrowaveDevice(MicrowaveInterface):
             # Get the first frequency and apply it to the simulator
             if self._scan_mode == SamplingOutputMode.JUMP_LIST:
                 first_freq = self._scan_frequencies[0]
+                frequencies = self._scan_frequencies.tolist() if hasattr(self._scan_frequencies, 'tolist') else self._scan_frequencies
             else:  # EQUIDISTANT_SWEEP
                 first_freq = self._scan_frequencies[0]  # Start frequency
+                start, stop, num = self._scan_frequencies
+                frequencies = np.linspace(start, stop, num).tolist()
                 
             # Add extensive logging
             self.log.info(f"Starting scan with frequencies: {self._scan_frequencies}")
@@ -316,6 +320,9 @@ class NVSimMicrowaveDevice(MicrowaveInterface):
             self._qudi_facade.microwave_controller.set_frequency(first_freq)
             self._qudi_facade.microwave_controller.set_power(self._scan_power)
             self._qudi_facade.microwave_controller.on()
+            
+            # Update shared state with scan information
+            self._qudi_facade.set_scanning_status(True, scan_index=0, frequencies=frequencies)
             
             # Simulate hardware delay
             time.sleep(self._startup_time)
@@ -359,18 +366,25 @@ class NVSimMicrowaveDevice(MicrowaveInterface):
             if self._scan_mode == SamplingOutputMode.JUMP_LIST:
                 if self._current_scan_index >= len(self._scan_frequencies):
                     self.log.info(f"Scan completed: reached end of jump list ({len(self._scan_frequencies)} frequencies)")
+                    # Update shared state with scan completion
+                    self._qudi_facade.set_scanning_status(False)
                     return False
                 next_freq = self._scan_frequencies[self._current_scan_index]
             else:  # EQUIDISTANT_SWEEP
                 start_freq, stop_freq, num_steps = self._scan_frequencies
                 if self._current_scan_index >= num_steps:
                     self.log.info(f"Scan completed: reached end of sweep ({num_steps} steps)")
+                    # Update shared state with scan completion
+                    self._qudi_facade.set_scanning_status(False)
                     return False
                 next_freq = start_freq + (stop_freq - start_freq) * (self._current_scan_index / (num_steps - 1))
                 
             # Apply the frequency to the simulator
             self.log.info(f"Scanning to next frequency: {next_freq/1e9:.6f} GHz (index {self._current_scan_index})")
             self._qudi_facade.microwave_controller.set_frequency(next_freq)
+            
+            # Update shared state with current scan position
+            self._qudi_facade.set_scanning_status(True, scan_index=self._current_scan_index)
             
             return True
 

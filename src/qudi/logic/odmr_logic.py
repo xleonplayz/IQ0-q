@@ -67,7 +67,7 @@ class OdmrLogic(LogicBase):
     _cw_power = StatusVar(name='cw_power', default=-np.inf)
     _scan_power = StatusVar(name='scan_power', default=-np.inf)
     _scan_frequency_ranges = StatusVar(name='scan_frequency_ranges',
-                                       default=[(2820e6, 2920e6, 101)])
+                                       default=[(1400e6, 4400e6, 301)])
     _run_time = StatusVar(name='run_time', default=60)
     _scans_to_average = StatusVar(name='scans_to_average', default=0)
     _data_rate = StatusVar(name='data_rate', default=200)
