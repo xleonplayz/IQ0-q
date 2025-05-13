@@ -474,6 +474,20 @@ class ScanningProbeDummyBare(ScanningProbeInterface):
             indices_to_axis_mapper,
         )
 
+        # Try to connect to NV simulator if available
+        self._simulator_available = False
+        self._simulator_manager = None
+        try:
+            from qudi.hardware.nv_simulator.simulator_manager import SimulatorManager
+            self._simulator_manager = SimulatorManager()
+            self._simulator_manager.register_module('scanning_probe_dummy')
+            self._simulator_available = True
+            self.log.info("Successfully connected to NV simulator for confocal imaging")
+        except Exception as e:
+            self.log.debug(f"NV simulator not available for confocal imaging: {str(e)}. "
+                         f"Using standard dummy behavior instead.")
+            self._simulator_available = False
+
         self.__scan_start = 0
         self.__last_forward_pixel = 0
         self.__last_backward_pixel = 0
@@ -484,6 +498,14 @@ class ScanningProbeDummyBare(ScanningProbeInterface):
     def on_deactivate(self):
         """Deactivate properly the confocal scanner dummy."""
         self.reset()
+        
+        # Unregister from simulator if we were using it
+        if hasattr(self, '_simulator_available') and self._simulator_available and self._simulator_manager is not None:
+            try:
+                self._simulator_manager.unregister_module('scanning_probe_dummy')
+            except:
+                pass
+        
         # free memory
         del self._image_generator
         self._scan_image = None
@@ -588,6 +610,21 @@ class ScanningProbeDummyBare(ScanningProbeInterface):
                     move_time = 0.01
                 else:
                     move_time = max(0.01, np.sqrt(np.sum(dist**2 for dist in move_distance.values())) / velocity)
+                
+                # Update position in the simulator if it's available
+                if self._simulator_available and self._simulator_manager is not None:
+                    try:
+                        # Get x, y, z positions from the position dict, defaulting to current values
+                        x = position.get('x', self._current_position.get('x', 0))
+                        y = position.get('y', self._current_position.get('y', 0))
+                        z = position.get('z', self._current_position.get('z', 0))
+                        
+                        # Update position in simulator
+                        self._simulator_manager.ping('scanning_probe_dummy')
+                        self._simulator_manager.set_position(x, y, z)
+                    except Exception as e:
+                        self.log.debug(f"Could not update simulator position: {str(e)}")
+                
                 time.sleep(move_time)
                 self._current_position.update(position)
             return self._current_position
@@ -613,6 +650,29 @@ class ScanningProbeDummyBare(ScanningProbeInterface):
                     move_time = 0.01
                 else:
                     move_time = max(0.01, np.sqrt(np.sum(dist**2 for dist in distance.values())) / velocity)
+                
+                # Update position in the simulator if it's available
+                if self._simulator_available and self._simulator_manager is not None:
+                    try:
+                        # Calculate new absolute position
+                        x = self._current_position.get('x', 0)
+                        y = self._current_position.get('y', 0)
+                        z = self._current_position.get('z', 0)
+                        
+                        # Apply relative movements
+                        if 'x' in distance:
+                            x += distance['x']
+                        if 'y' in distance:
+                            y += distance['y']
+                        if 'z' in distance:
+                            z += distance['z']
+                        
+                        # Update position in simulator
+                        self._simulator_manager.ping('scanning_probe_dummy')
+                        self._simulator_manager.set_position(x, y, z)
+                    except Exception as e:
+                        self.log.debug(f"Could not update simulator position: {str(e)}")
+                
                 time.sleep(move_time)
                 self._current_position.update(new_pos)
             return self._current_position
@@ -658,17 +718,81 @@ class ScanningProbeDummyBare(ScanningProbeInterface):
             self.module_state.lock()
 
             scan_vectors = self._init_scan_vectors()
-
-            self._scan_image = self._image_generator.generate_image(scan_vectors, self.scan_settings.resolution)
+            
+            # Try to use the NV simulator for confocal imaging if available
+            if self._simulator_available and self._simulator_manager is not None:
+                try:
+                    # Ping to keep connection alive
+                    self._simulator_manager.ping('scanning_probe_dummy')
+                    
+                    # Get scan range for x and y
+                    if len(self.scan_settings.axes) >= 2:
+                        x_axis = self.scan_settings.axes[0]
+                        y_axis = self.scan_settings.axes[1]
+                        x_range = (self.scan_settings.range[0][0], self.scan_settings.range[0][1])
+                        y_range = (self.scan_settings.range[1][0], self.scan_settings.range[1][1])
+                        resolution = self.scan_settings.resolution[0]  # Assume square for simplicity
+                        
+                        # Get z position (or use center if not in scan)
+                        z_position = 0
+                        if len(self.scan_settings.axes) >= 3:
+                            z_position = np.mean(self.scan_settings.range[2])
+                        else:
+                            # Try to get z from current position
+                            current_pos = self.get_target()
+                            if 'z' in current_pos:
+                                z_position = current_pos['z']
+                                
+                        # Try to generate confocal image using simulator
+                        sim_image = self._simulator_manager.get_confocal_image(
+                            x_range, y_range, z_position, resolution
+                        )
+                        
+                        if sim_image is not None:
+                            self.log.debug("Using NV simulator for confocal image generation")
+                            self._scan_image = sim_image
+                        else:
+                            # Fallback to image generator
+                            self._scan_image = self._image_generator.generate_image(scan_vectors, self.scan_settings.resolution)
+                    else:
+                        # For 1D scans, use standard image generator
+                        self._scan_image = self._image_generator.generate_image(scan_vectors, self.scan_settings.resolution)
+                except Exception as e:
+                    self.log.warning(f"Error using simulator for confocal image: {str(e)}. "
+                                   f"Falling back to standard image generation.")
+                    self._scan_image = self._image_generator.generate_image(scan_vectors, self.scan_settings.resolution)
+            else:
+                # If simulator not available, use standard image generator
+                self._scan_image = self._image_generator.generate_image(scan_vectors, self.scan_settings.resolution)
+                
             self._scan_data = ScanData.from_constraints(
                 settings=self.scan_settings, constraints=self.constraints, scanner_target_at_start=self.get_target()
             )
             self._scan_data.new_scan()
 
             if self._back_scan_settings is not None:
-                self._back_scan_image = self._image_generator.generate_image(
-                    scan_vectors, self.scan_settings.resolution
-                )
+                # For back scan, we'll use either the same simulator image or generate a new one
+                if self._simulator_available and self._simulator_manager is not None and len(self.scan_settings.axes) >= 2:
+                    try:
+                        # Reuse the same image with slight variations for back scan
+                        if hasattr(self, '_scan_image') and self._scan_image is not None:
+                            # Add small random variations to simulate measurement differences
+                            noise = np.random.normal(0, 0.05 * np.mean(self._scan_image), self._scan_image.shape)
+                            self._back_scan_image = self._scan_image + noise
+                            self._back_scan_image = np.clip(self._back_scan_image, 0, None)
+                        else:
+                            self._back_scan_image = self._image_generator.generate_image(
+                                scan_vectors, self.scan_settings.resolution
+                            )
+                    except Exception:
+                        self._back_scan_image = self._image_generator.generate_image(
+                            scan_vectors, self.scan_settings.resolution
+                        )
+                else:
+                    self._back_scan_image = self._image_generator.generate_image(
+                        scan_vectors, self.scan_settings.resolution
+                    )
+                    
                 self._back_scan_data = ScanData.from_constraints(
                     settings=self.back_scan_settings,
                     constraints=self.constraints,

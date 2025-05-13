@@ -26,11 +26,14 @@ import numpy as np
 
 from qudi.core.configoption import ConfigOption
 from qudi.interface.fast_counter_interface import FastCounterInterface
-from qudi.util.mutex import Mutex
+from qudi.util.mutex import RecursiveMutex
 
 
 class FastCounterDummy(FastCounterInterface):
     """ Implementation of the FastCounter interface methods for a dummy usage.
+
+    This module integrates with the NV center simulator to provide physically
+    accurate time traces based on the state of a simulated NV center.
 
     Example config for copy-paste:
 
@@ -39,18 +42,13 @@ class FastCounterDummy(FastCounterInterface):
         options:
             gated: False
             #load_trace: None # path to the saved dummy trace
-            use_nv_simulator: True  # optional, whether to use the NV simulator
-            magnetic_field: [0, 0, 500]  # optional, magnetic field in Gauss [x, y, z]
-            temperature: 300  # optional, temperature in Kelvin
-
+            use_simulator: True  # Whether to use the NV center simulator
     """
 
-    # config option
+    # config options
     _gated = ConfigOption('gated', False, missing='warn')
     trace_path = ConfigOption('load_trace', None)
-    _use_nv_simulator = ConfigOption(name='use_nv_simulator', default=False)
-    _magnetic_field = ConfigOption(name='magnetic_field', default=[0, 0, 500])  # Gauss
-    _temperature = ConfigOption(name='temperature', default=300)  # Kelvin
+    _use_simulator = ConfigOption('use_simulator', True)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -60,8 +58,14 @@ class FastCounterDummy(FastCounterInterface):
                                                            '..',
                                                            'FastComTec_demo_timetrace.asc'))
             self.log.debug(f"Loading dummy fastcounter trace: {self.trace_path}")
-            
-        self._thread_lock = Mutex()
+        
+        # State variables
+        self._thread_lock = RecursiveMutex()
+        self._simulator_available = False
+        self._simulator_manager = None
+        self._binwidth = 1
+        self._gate_length_bins = 8192
+        self._count_data = None
 
     def on_activate(self):
         """ Initialisation performed during activation of the module.
@@ -70,31 +74,31 @@ class FastCounterDummy(FastCounterInterface):
         self._binwidth = 1
         self._gate_length_bins = 8192
         
-        # Try to initialize the NV simulator manager
-        self._nv_sim = None
-        if self._use_nv_simulator:
+        # Try to get the simulator manager if configured to use it
+        if self._use_simulator:
             try:
-                from nv_simulator_manager import NVSimulatorManager
-                self._nv_sim = NVSimulatorManager(
-                    magnetic_field=self._magnetic_field,
-                    temperature=self._temperature,
-                    use_simulator=True
-                )
-                self.log.info("NV simulator integration enabled for fast_counter_dummy")
-                self.log.debug(f"NV simulator initialized with magnetic field {self._magnetic_field} G, "
-                              f"temperature {self._temperature} K")
-            except ImportError as e:
-                self.log.warning(f"Could not import NV simulator manager: {e}")
-                self.log.warning("Using fallback simulation model instead")
+                from qudi.hardware.nv_simulator.simulator_manager import SimulatorManager
+                self._simulator_manager = SimulatorManager()
+                self._simulator_manager.register_module('fast_counter_dummy')
+                self._simulator_available = True
+                self.log.info("Successfully connected to NV simulator")
             except Exception as e:
-                self.log.warning(f"Failed to initialize NV simulator: {e}")
-                self.log.warning("Using fallback simulation model instead")
-        
-        return
+                self.log.warning(f"Could not connect to NV simulator: {str(e)}. "
+                                f"Using fallback dummy behavior instead.")
+                self._simulator_available = False
+        else:
+            self._simulator_available = False
 
     def on_deactivate(self):
         """ Deinitialisation performed during deactivation of the module.
         """
+        # Unregister from simulator if we were using it
+        if self._simulator_available and self._simulator_manager is not None:
+            try:
+                self._simulator_manager.unregister_module('fast_counter_dummy')
+            except:
+                pass
+        
         self.statusvar = -1
         return
 
@@ -103,35 +107,7 @@ class FastCounterDummy(FastCounterInterface):
 
         @return dict: dict with keys being the constraint names as string and
                       items are the definition for the constaints.
-
-         The keys of the returned dictionary are the str name for the constraints
-        (which are set in this method).
-
-                    NO OTHER KEYS SHOULD BE INVENTED!
-
-        If you are not sure about the meaning, look in other hardware files to
-        get an impression. If still additional constraints are needed, then they
-        have to be added to all files containing this interface.
-
-        The items of the keys are again dictionaries which have the generic
-        dictionary form:
-            {'min': <value>,
-             'max': <value>,
-             'step': <value>,
-             'unit': '<value>'}
-
-        Only the key 'hardware_binwidth_list' differs, since they
-        contain the list of possible binwidths.
-
-        If the constraints cannot be set in the fast counting hardware then
-        write just zero to each key of the generic dicts.
-        Note that there is a difference between float input (0.0) and
-        integer input (0), because some logic modules might rely on that
-        distinction.
-
-        ALL THE PRESENT KEYS OF THE CONSTRAINTS DICT MUST BE ASSIGNED!
         """
-
         constraints = dict()
 
         # the unit of those entries are seconds per bin. In order to get the
@@ -155,13 +131,13 @@ class FastCounterDummy(FastCounterInterface):
                     gate_length_s: the actual set gate length in seconds
                     number_of_gates: the number of gated, which are accepted
         """
-        self._binwidth = int(np.rint(bin_width_s * 1e9 * 950 / 1000))
-        self._gate_length_bins = int(np.rint(record_length_s / bin_width_s))
-        actual_binwidth = self._binwidth * 1000 / 950e9
-        actual_length = self._gate_length_bins * actual_binwidth
-        self.statusvar = 1
-        return actual_binwidth, actual_length, number_of_gates
-
+        with self._thread_lock:
+            self._binwidth = int(np.rint(bin_width_s * 1e9 * 950 / 1000))
+            self._gate_length_bins = int(np.rint(record_length_s / bin_width_s))
+            actual_binwidth = self._binwidth * 1000 / 950e9
+            actual_length = self._gate_length_bins * actual_binwidth
+            self.statusvar = 1
+            return actual_binwidth, actual_length, number_of_gates
 
     def get_status(self):
         """ Receives the current status of the Fast Counter and outputs it as
@@ -176,16 +152,41 @@ class FastCounterDummy(FastCounterInterface):
         return self.statusvar
 
     def start_measure(self):
-        time.sleep(1)
-        self.statusvar = 2
-        try:
-            self._count_data = np.loadtxt(self.trace_path, dtype='int64')
-        except:
-            return -1
-
-        if self._gated:
-            self._count_data = self._count_data.transpose()
-        return 0
+        """Start fast counter measurement."""
+        with self._thread_lock:
+            # Use simulator when available for physically accurate traces
+            if self._simulator_available and self._simulator_manager is not None:
+                try:
+                    # Ping simulator to update connection status
+                    if self._simulator_manager.ping('fast_counter_dummy'):
+                        # Get the binwidth and record length
+                        bin_width_s = self.get_binwidth()
+                        record_length_s = bin_width_s * self._gate_length_bins
+                        
+                        # Generate a time trace based on the current NV state
+                        self._count_data = self._simulator_manager.generate_time_trace(
+                            bin_width_s, 
+                            record_length_s,
+                            number_of_gates=self._gated and 1 or 0
+                        )
+                        
+                        # Set status to running
+                        self.statusvar = 2
+                        return 0
+                except Exception as e:
+                    self.log.warning(f"Error using simulator for time trace: {str(e)}. "
+                                    f"Falling back to dummy behavior.")
+            
+            # Fallback to dummy behavior if simulator is not available or fails
+            time.sleep(1)
+            self.statusvar = 2
+            try:
+                self._count_data = np.loadtxt(self.trace_path, dtype='int64')
+                if self._gated:
+                    self._count_data = self._count_data.transpose()
+                return 0
+            except:
+                return -1
 
     def pause_measure(self):
         """ Pauses the current measurement.
@@ -198,7 +199,6 @@ class FastCounterDummy(FastCounterInterface):
 
     def stop_measure(self):
         """ Stop the fast counter. """
-
         time.sleep(1)
         self.statusvar = 1
         return 0
@@ -208,7 +208,6 @@ class FastCounterDummy(FastCounterInterface):
 
         If fast counter is in pause state, then fast counter will be continued.
         """
-
         self.statusvar = 2
         return 0
 
@@ -218,7 +217,6 @@ class FastCounterDummy(FastCounterInterface):
         @return bool: Boolean value indicates if the fast counter is a gated
                       counter (TRUE) or not (FALSE).
         """
-
         return self._gated
 
     def get_binwidth(self):
@@ -247,45 +245,20 @@ class FastCounterDummy(FastCounterInterface):
 
         If the hardware does not support these features, the values should be None
         """
+        # Update simulator connection if available
+        if self._simulator_available and self._simulator_manager is not None:
+            try:
+                self._simulator_manager.ping('fast_counter_dummy')
+            except:
+                pass
         
-        with self._thread_lock:
-            # Get simulator instance if it's not already available
-            if not hasattr(self, '_nv_sim') or self._nv_sim is None:
-                try:
-                    from nv_simulator_manager import NVSimulatorManager
-                    self._nv_sim = NVSimulatorManager(
-                        magnetic_field=self._magnetic_field,
-                        temperature=self._temperature,
-                        use_simulator=True
-                    )
-                    self.log.info("NV simulator initialized on-demand for fast counter")
-                except Exception as e:
-                    raise RuntimeError(f"Could not initialize NV simulator: {e}")
-            
-            # Get the current fluorescence rate from the NV simulator
-            rate = self._nv_sim.get_fluorescence_rate()
-            
-            # Get time bin width in seconds
-            bin_width = self.get_binwidth()
-            
-            # Calculate expected counts per bin based on rate and bin width
-            counts_per_bin = rate * bin_width
-            
-            # Generate Poisson-distributed counts
-            if not self._gated:
-                # Non-gated mode: generate 1D array
-                count_data = np.random.poisson(counts_per_bin, self._gate_length_bins)
-            else:
-                # Gated mode: generate 2D array with 1 gate
-                count_data = np.random.poisson(
-                    counts_per_bin, (1, self._gate_length_bins))
-            
-            # Include an artificial waiting time
-            time.sleep(0.5)
-            info_dict = {'elapsed_sweeps': 1, 'elapsed_time': 0.5}
-            return count_data, info_dict
+        # Include an artificial waiting time
+        time.sleep(0.5)
+        info_dict = {'elapsed_sweeps': None, 'elapsed_time': None}
+        return self._count_data, info_dict
 
     def get_frequency(self):
+        """Get the sample clock frequency."""
         freq = 950.
         time.sleep(0.5)
         return freq

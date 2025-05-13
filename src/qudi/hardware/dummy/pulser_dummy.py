@@ -51,6 +51,9 @@ class PulserDummy(PulserInterface):
     force_sequence_option = ConfigOption('force_sequence_option', default=False)
     save_samples = ConfigOption('save_samples', default=False)
 
+    # Config options
+    use_simulator = ConfigOption('use_simulator', True)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -81,6 +84,11 @@ class PulserDummy(PulserInterface):
 
         self.use_sequencer = True
         self.interleave = False
+        
+        # Thread safety and simulator state
+        self._thread_lock = Mutex()
+        self._simulator_available = False
+        self._simulator_manager = None
 
         self.current_status = 0    # that means off, not running.
 
@@ -100,10 +108,36 @@ class PulserDummy(PulserInterface):
 
         for chnl in self.activation_config:
             self.channel_states[chnl] = True
+            
+        # Try to connect to the simulator if configured to use it
+        if self.use_simulator:
+            try:
+                from qudi.hardware.nv_simulator.simulator_manager import SimulatorManager
+                self._simulator_manager = SimulatorManager()
+                self._simulator_manager.register_module('pulser_dummy')
+                self._simulator_available = True
+                self.log.info("Successfully connected to NV simulator for pulse generation")
+            except Exception as e:
+                self.log.warning(f"Could not connect to NV simulator: {str(e)}. "
+                               f"Using fallback dummy behavior instead.")
+                self._simulator_available = False
+        else:
+            self._simulator_available = False
 
     def on_deactivate(self):
         """ Deinitialisation performed during deactivation of the module.
         """
+        # Make sure pulser is off
+        if self.current_status != 0:
+            self.pulser_off()
+            
+        # Unregister from simulator if we were using it
+        if self._simulator_available and self._simulator_manager is not None:
+            try:
+                self._simulator_manager.unregister_module('pulser_dummy')
+            except:
+                pass
+                
         self.connected = False
 
     def get_constraints(self):
@@ -235,23 +269,53 @@ class PulserDummy(PulserInterface):
 
         @return int: error code (0:stopped, -1:error, 1:running)
         """
-        if self.current_status == 0:
-            self.current_status = 1
-            self.log.info('PulserDummy: Switch on the Output.')
-            time.sleep(1)
-            return 0
-        else:
-            return -1
+        with self._thread_lock:
+            if self.current_status == 0:
+                self.current_status = 1
+                self.log.info('PulserDummy: Switch on the Output.')
+                
+                # Notify simulator of pulse sequence activation if available
+                if self._simulator_available and self._simulator_manager is not None:
+                    try:
+                        # Get currently loaded sequence info 
+                        loaded_assets, asset_type = self.get_loaded_assets()
+                        
+                        # Send information to simulator that pulses are active
+                        self._simulator_manager.ping('pulser_dummy')
+                        
+                        # If we're using Rabi sequences, we could tell the simulator about them
+                        if asset_type == 'sequence' and any('rabi' in asset_name.lower() for asset_name in loaded_assets.values()):
+                            # Simulate simulator evolution for a short time with pulses
+                            # This is a simplified approach - in a real integration we'd analyze the sequence in detail
+                            self._simulator_manager.evolve(0.0001)  # 100 μs evolution
+                    except Exception as e:
+                        self.log.debug(f"Could not notify simulator about pulses: {str(e)}")
+                
+                time.sleep(1)
+                return 0
+            else:
+                return -1
 
     def pulser_off(self):
         """ Switches the pulsing device off.
 
         @return int: error code (0:stopped, -1:error, 1:running)
         """
-        if self.current_status == 1:
-            self.current_status = 0
-            self.log.info('PulserDummy: Switch off the Output.')
-        return 0
+        with self._thread_lock:
+            if self.current_status == 1:
+                self.current_status = 0
+                self.log.info('PulserDummy: Switch off the Output.')
+                
+                # Notify simulator that pulses are turned off if available
+                if self._simulator_available and self._simulator_manager is not None:
+                    try:
+                        self._simulator_manager.ping('pulser_dummy')
+                        # Reset the simulator state to account for the pulse sequence effects
+                        self._simulator_manager.reset_state()
+                    except Exception as e:
+                        self.log.debug(f"Could not notify simulator about pulse deactivation: {str(e)}")
+            
+            return 0
 
     def write_waveform(self, name, analog_samples, digital_samples, is_first_chunk, is_last_chunk,
                        total_number_of_samples):

@@ -51,9 +51,6 @@ class FiniteSamplingInputDummy(FiniteSamplingInputInterface):
             channel_units:
                 'APD counts': 'c/s'
                 'Photodiode': 'V'
-            use_nv_simulator: True  # optional, whether to use the NV simulator
-            magnetic_field: [0, 0, 500]  # optional, magnetic field in Gauss [x, y, z]
-            temperature: 300  # optional, temperature in Kelvin
     """
 
     _sample_rate_limits = ConfigOption(name='sample_rate_limits', default=(1, 1e6))
@@ -63,9 +60,6 @@ class FiniteSamplingInputDummy(FiniteSamplingInputInterface):
     _simulation_mode = ConfigOption(name='simulation_mode',
                                     default='ODMR',
                                     constructor=lambda x: SimulationMode[x.upper()])
-    _use_nv_simulator = ConfigOption(name='use_nv_simulator', default=False)
-    _magnetic_field = ConfigOption(name='magnetic_field', default=[0, 0, 500])  # Gauss
-    _temperature = ConfigOption(name='temperature', default=300)  # Kelvin
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -103,43 +97,6 @@ class FiniteSamplingInputDummy(FiniteSamplingInputInterface):
         self.__returned_samples = 0
         self.__simulated_samples = None
         self.__simulated_odmr_params = dict()
-        
-        # Try to initialize the NV simulator manager
-        self._nv_sim = None
-        if self._use_nv_simulator:
-            try:
-                # Use relative import for nv_simulator_manager
-                from . import nv_simulator_manager
-                self._nv_sim = nv_simulator_manager.NVSimulatorManager(
-                    magnetic_field=self._magnetic_field,
-                    temperature=self._temperature,
-                    use_simulator=True
-                )
-                self.log.info("NV simulator integration enabled for finite_sampling_input_dummy")
-                self.log.debug(f"NV simulator initialized with magnetic field {self._magnetic_field} G, "
-                              f"temperature {self._temperature} K")
-            except ImportError as e:
-                self.log.warning(f"Could not import NV simulator manager: {e}")
-                self.log.warning("Trying fallback import...")
-                # Fallback direct import attempt
-                try:
-                    import os
-                    import sys
-                    current_dir = os.path.dirname(os.path.abspath(__file__))
-                    if current_dir not in sys.path:
-                        sys.path.insert(0, current_dir)
-                    from nv_simulator_manager import NVSimulatorManager
-                    self._nv_sim = NVSimulatorManager(
-                        magnetic_field=self._magnetic_field,
-                        temperature=self._temperature,
-                        use_simulator=True
-                    )
-                    self.log.info("NV simulator integration enabled for finite_sampling_input_dummy (fallback import)")
-                except ImportError:
-                    self.log.warning("Fallback import also failed - Using fallback simulation model instead")
-            except Exception as e:
-                self.log.warning(f"Failed to initialize NV simulator: {e}")
-                self.log.warning("Using fallback simulation model instead")
 
     def on_deactivate(self):
         self.__simulated_samples = None
@@ -276,95 +233,14 @@ class FiniteSamplingInputDummy(FiniteSamplingInputInterface):
         if length < 3:
             self.__simulate_random(length)
             return
-        
-        # Generate data for each active channel
+        gamma = 2
         data = dict()
-        
-        # Get current microwave settings from scan configuration
-        zero_field = 2.87e9  # Zero-field splitting in Hz (Default)
-        
-        # For 500G B-field, Zeeman splitting is ~1.4 GHz (2.8 MHz/G * 500G)
-        # So we need a wide range to capture both resonances
-        freq_range = 3.0e9  # Widened range to ensure we capture both dips (3 GHz)
-        freq_min = 1.8e9    # Start well below the lower dip (~1.47 GHz)
-        freq_max = 4.8e9    # End well above the upper dip (~4.27 GHz)
-        
-        self.log.debug(f"ODMR simulation requested with {length} frequency points from "
-                     f"{freq_min/1e9:.3f} GHz to {freq_max/1e9:.3f} GHz")
-        
-        try:
-            # Get simulator instance
-            if not hasattr(self, '_nv_sim') or self._nv_sim is None:
-                # Create the simulator if it doesn't exist yet
-                try:
-                    # Try relative import first
-                    try:
-                        from .nv_simulator_manager import NVSimulatorManager
-                        self.log.debug("Imported NVSimulatorManager from relative import")
-                    except (ImportError, ValueError):
-                        # If that fails, try direct import
-                        from nv_simulator_manager import NVSimulatorManager
-                        self.log.debug("Imported NVSimulatorManager from direct import")
-                    
-                    self._nv_sim = NVSimulatorManager(
-                        magnetic_field=self._magnetic_field,
-                        temperature=self._temperature,
-                        use_simulator=True
-                    )
-                    self.log.info("NV simulator initialized on-demand for ODMR simulation")
-                except Exception as e:
-                    self.log.error(f"Could not initialize NV simulator: {e}")
-                    # If simulator fails, fall back to random data
-                    self.__simulate_random(length)
-                    self.log.warning("Using random data instead of ODMR simulation")
-                    return
-            
-            # Simulate ODMR using the NV simulator
-            try:
-                self.log.debug("Requesting ODMR simulation from NV simulator")
-                odmr_result = self._nv_sim.simulate_odmr(freq_min, freq_max, length)
-                
-                # Verify we have valid data
-                if 'signal' not in odmr_result or len(odmr_result['signal']) != length:
-                    self.log.warning(f"Invalid ODMR result: expected {length} points, got " + 
-                                   f"{len(odmr_result.get('signal', []))} points")
-                    # Fall back to random data
-                    self.__simulate_random(length)
-                    return
-                
-                # Use the simulation data
-                for ch in self._active_channels:
-                    # Add some random variation to base level for each channel
-                    base_level = ((np.random.rand() - 0.5) * 0.05 + 1) * 200000
-                    signal_scale = base_level / 100000.0  # Scale factor
-                    
-                    # Scale the signal to the base level for this channel
-                    signal = odmr_result['signal'] * signal_scale
-                    
-                    # Add some extra random noise
-                    noise_level = base_level * 0.01  # 1% noise
-                    noise = np.random.normal(0, noise_level, length)
-                    
-                    # Store the final signal with noise
-                    data[ch] = signal + noise
-                
-                # Store the simulated data
-                self.__simulated_samples = data
-                
-                # Log success
-                self.log.debug(f"Generated ODMR data using NV simulator model: min={np.min(signal):.1f}, max={np.max(signal):.1f}")
-                
-                # If simulation shows flat line with no dips, log a warning
-                if np.max(odmr_result['signal']) - np.min(odmr_result['signal']) < 1000:
-                    self.log.warning("ODMR signal shows minimal contrast - check magnetic field and simulator settings")
-                
-            except Exception as e:
-                self.log.error(f"Failed to simulate ODMR: {e}")
-                # Fall back to random data
-                self.__simulate_random(length)
-                self.log.warning("Using random data instead of ODMR simulation due to error")
-        
-        except Exception as e:
-            self.log.error(f"Global error in ODMR simulation: {e}")
-            # Fall back to random data as a last resort
-            self.__simulate_random(length)
+        x = np.arange(length, dtype=np.float64)
+        for ch in self._active_channels:
+            offset = ((np.random.rand() - 0.5) * 0.05 + 1) * 200000
+            pos = length / 2 + (np.random.rand() - 0.5) * length / 10
+            amp = offset / 20
+            noise = amp / 2
+            data[ch] = offset + (np.random.rand(length) - 0.5) * noise - amp * gamma ** 2 / (
+                    (x - pos) ** 2 + gamma ** 2)
+        self.__simulated_samples = data

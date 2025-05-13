@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 
 """
-This file contains the Qudi hardware modules that interface with the NV center simulator.
+This file contains the Qudi NV center simulator package.
 
-Copyright (c) 2023, IQO
+Copyright (c) 2021, the qudi developers. See the AUTHORS.md file at the top-level directory of this
+distribution and on <https://github.com/Ulm-IQO/qudi-iqo-modules/>
 
 This file is part of qudi.
 
@@ -18,3 +19,5 @@ See the GNU Lesser General Public License for more details.
 You should have received a copy of the GNU Lesser General Public License along with qudi.
 If not, see <https://www.gnu.org/licenses/>.
 """
+
+__all__ = ['simulator_manager', 'model']

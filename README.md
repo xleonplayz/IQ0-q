@@ -1,49 +1,10 @@
-# qudi-iqo-modules with NV Center Simulator
+# qudi-iqo-modules
 [![License: LGPL v3](https://img.shields.io/badge/License-LGPL%20v3-blue.svg)](https://www.gnu.org/licenses/lgpl-3.0)
 
 ---
 A collection of qudi measurement modules originally developed for experiments on color centers in 
-semiconductor materials, now enhanced with an integrated NV center simulator.
+semiconductor materials.
 
-## NV Center Simulator Features
-
-The NV center simulator provides realistic quantum simulations of NV centers in diamond:
-
-- Physically accurate simulation of quantum dynamics
-- ODMR, Rabi, T1, T2 experiments
-- Confocal microscopy simulation
-- Pulse sequence support for quantum control
-- Direct replacement for hardware modules
-
-## Using the Simulator
-
-### Standalone Mode
-
-Run simulations without the Qudi framework:
-
-```
-python -m src.qudi.hardware.nv_simulator
-```
-
-Optional arguments:
-- `--odmr`: Run only the ODMR simulation
-- `--rabi`: Run only the Rabi oscillation simulation
-- `--confocal`: Run only the confocal scan simulation
-- `--all`: Run all simulations (default)
-
-### With Qudi Framework
-
-1. Use the provided configuration file:
-   ```
-   cp src/qudi/hardware/nv_simulator/nv_simulator.cfg /path/to/your/qudi/config/
-   ```
-
-2. Launch Qudi with this configuration:
-   ```
-   python -m qudi -c /path/to/your/qudi/config/nv_simulator.cfg
-   ```
-
-For more details, see [NV Simulator Documentation](/src/qudi/hardware/nv_simulator/README.md).
 
 
 ## Installation
