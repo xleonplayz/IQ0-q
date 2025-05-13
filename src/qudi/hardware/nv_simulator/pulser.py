@@ -27,6 +27,7 @@ import sys
 
 from qudi.core.statusvariable import StatusVar
 from qudi.core.configoption import ConfigOption
+from qudi.core.connector import Connector
 from qudi.util.datastorage import get_timestamp_filename, create_dir_for_file
 from qudi.util.helpers import natural_sort
 from qudi.util.yaml import yaml_dump
@@ -56,8 +57,13 @@ class NVSimPulser(PulserInterface):
             laser_channel: 'd_ch1'
             microwave_channel: 'd_ch2'
             default_sample_rate: 1.0e9
+        connect:
+            simulator: nv_simulator
     """
 
+    # Connectors
+    simulator = Connector(interface='MicrowaveInterface')
+    
     # Status variables that will be saved when closing qudi and restored when starting qudi
     activation_config = StatusVar(default=None)
     
@@ -119,8 +125,8 @@ class NVSimPulser(PulserInterface):
 
     def on_activate(self):
         """Initialisation performed during activation of the module."""
-        # Initialize the simulator facade
-        self._qudi_facade = QudiFacade()
+        # Get the QudiFacade instance from the simulator connector
+        self._qudi_facade = self.simulator()
         
         self.connected = True
         
