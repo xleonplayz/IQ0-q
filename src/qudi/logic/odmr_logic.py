@@ -623,7 +623,13 @@ class OdmrLogic(LogicBase):
                             new_counts[ch].reshape(-1, self._oversampling_factor),
                             axis=1
                         )
-                self._microwave().reset_scan()
+                # Call scan_next instead of reset_scan to move to the next frequency in the scan
+                # The reset_scan method only resets to the start frequency, which is not what we want here
+                if hasattr(self._microwave(), 'scan_next'):
+                    self._microwave().scan_next()
+                else:
+                    # Fall back to reset_scan for compatibility with other implementations
+                    self._microwave().reset_scan()
             except:
                 self.log.exception('Error while trying to read ODMR scan data from hardware:')
                 self.stop_odmr_scan()
