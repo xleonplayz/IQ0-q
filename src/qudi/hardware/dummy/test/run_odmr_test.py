@@ -258,26 +258,17 @@ def run_test_and_visualize():
         def patched_run_test():
             """Patched version that ensures proper QudiFacade parameters"""
             try:
-                # Before running the test, monkey patch QudiFacade
+                # Before running the test, verify QudiFacade is reset
+                # We don't need the test_mode patch anymore as it causes Qt property errors
                 from qudi.hardware.nv_simulator.qudi_facade import QudiFacade
                 
-                # Store the original __new__ method
-                original_new = QudiFacade.__new__
-                
-                # Define a patched __new__ method that always uses test_mode=True
-                def patched_new(cls, *args, **kwargs):
-                    # Always set test_mode to True
-                    kwargs['test_mode'] = True
-                    return original_new(cls, *args, **kwargs)
-                
-                # Apply the monkey patch
-                QudiFacade.__new__ = patched_new
+                # Reset the singleton instance if it exists
+                if hasattr(QudiFacade, '_instance') and QudiFacade._instance is not None:
+                    QudiFacade._instance = None
+                    print("Reset QudiFacade singleton for clean test")
                 
                 # Now run the original test
                 original_run_test()
-                
-                # Restore the original method
-                QudiFacade.__new__ = original_new
             except Exception as e:
                 print(f"Error running test: {e}")
         

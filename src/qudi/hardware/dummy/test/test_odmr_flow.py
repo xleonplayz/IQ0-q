@@ -118,7 +118,8 @@ def run_odmr_flow_test():
     
     # Initialize QudiFacade
     logger.info("Initializing QudiFacade...")
-    qudi_facade = QudiFacade(name="QudiFacade_Test", test_mode=True)
+    # Remove test_mode parameter to avoid Qt property error
+    qudi_facade = QudiFacade(name="QudiFacade_Test")
     qudi_facade.on_activate()
     
     # Set magnetic field to 500 Gauss along z-axis

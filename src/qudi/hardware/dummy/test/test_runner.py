@@ -107,23 +107,18 @@ def patch_imports():
                 # Store the original for reference
                 QudiFacade._original_new = original_new
                 
-                # Define the patched method
-                def patched_new(cls, *args, **kwargs):
-                    # Handle test_mode parameter
-                    test_mode = kwargs.pop('test_mode', False)
-                    
-                    if test_mode:
-                        # In test mode, create a new instance
-                        instance = object.__new__(cls)
-                        instance._initialized = False
-                        return instance
-                    
-                    # Otherwise use the original implementation
-                    return original_new(cls, *args, **kwargs)
+                # Define the patched method to reset singleton
+                def reset_singleton():
+                    # Reset the singleton instance
+                    if hasattr(QudiFacade, '_instance'):
+                        QudiFacade._instance = None
+                        logger.info("Reset QudiFacade singleton instance")
                 
-                # Apply the patch
-                QudiFacade.__new__ = patched_new
-                logger.info("Patched QudiFacade.__new__ to support test_mode")
+                # Add reset method to QudiFacade for tests to use
+                QudiFacade.reset_for_test = staticmethod(reset_singleton)
+                
+                # No need to patch __new__ anymore
+                logger.info("Added reset_for_test method to QudiFacade")
         except ImportError:
             logger.warning("Could not patch QudiFacade, it might not be imported yet")
     except ImportError:

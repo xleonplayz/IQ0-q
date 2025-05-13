@@ -14,7 +14,7 @@ This directory contains test scripts to diagnose communication issues between th
 1. **Module Import Error**: Fixed missing `qudi_main_weakref` and `name` parameters in all modules
 2. **Base Class Availability**: Added mock implementations of Qudi core classes in `fixed_modules/`
 3. **Missing Logging**: Ensured logging is properly configured for all test modules
-4. **Singleton Initialization Error**: Added `test_mode=True` parameter to allow multiple QudiFacade instances 
+4. **Singleton Initialization Error**: Fixed QudiFacade singleton issues for running multiple tests
 5. **API Compatibility**: Made modules work with both older and newer Qudi versions
 
 ## Running the Tests
@@ -60,6 +60,15 @@ If you encounter errors:
 2. Check logs in the `.log` files for detailed error information
 3. Verify that `fixed_modules/` is in your Python path when running without Qudi
 4. Make sure the NV model can be imported properly
+5. If you encounter QtProperty errors with test_mode, it's been removed as it caused incompatibility with real Qudi
+
+## ODMR GUI Fix
+
+If your ODMR GUI is showing a flat line instead of resonance dips, the primary issue was identified:
+
+1. The ODMR logic was calling `reset_scan()` after each data point, which resets to the first frequency
+2. Instead, it needs to call `scan_next()` to move through all frequencies in the scan sequence
+3. The fix modifies `odmr_logic.py` to use `scan_next()` when available, maintaining backward compatibility
 
 ## Mock Modules (fixed_modules/)
 
