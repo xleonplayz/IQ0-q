@@ -368,10 +368,34 @@ class MicrowaveDummy(MicrowaveInterface):
                 if self._scan_index >= num_points:
                     self._scan_index = 0  # Reset for next scan
                     return False
+                    
+                # Update the current frequency based on the scan index
+                start_freq, stop_freq, num_steps = self._scan_frequencies
+                current_freq = start_freq + (stop_freq - start_freq) * (self._scan_index / (num_steps - 1))
+                self.log.info(f"[SCAN] Advanced to frequency {current_freq/1e9:.6f} GHz (index {self._scan_index})")
+                
+                # If NV simulator is available, update it
+                if hasattr(self, '_nv_sim') and self._nv_sim is not None:
+                    try:
+                        self._nv_sim.set_microwave(current_freq, self._scan_power, True)
+                    except Exception as e:
+                        self.log.warning(f"Failed to update NV simulator: {e}")
+                
             else:  # JUMP_LIST
                 if self._scan_index >= len(self._scan_frequencies):
                     self._scan_index = 0  # Reset for next scan
                     return False
+                    
+                # Update the current frequency based on the scan index
+                current_freq = self._scan_frequencies[self._scan_index]
+                self.log.info(f"[SCAN] Advanced to frequency {current_freq/1e9:.6f} GHz (index {self._scan_index})")
+                
+                # If NV simulator is available, update it
+                if hasattr(self, '_nv_sim') and self._nv_sim is not None:
+                    try:
+                        self._nv_sim.set_microwave(current_freq, self._scan_power, True)
+                    except Exception as e:
+                        self.log.warning(f"Failed to update NV simulator: {e}")
                     
             # Return True if there are more frequencies
             return True

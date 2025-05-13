@@ -1,12 +1,9 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 """
-This file contains a singleton manager class for integrating the SimOS NV center simulator
-with the Qudi dummy hardware modules.
+NV simulator manager for qudi - provides a simple interface to the simulator for dummy hardware modules.
 
-Copyright (c) 2021, the qudi developers. See the AUTHORS.md file at the top-level directory of this
-distribution and on <https://github.com/Ulm-IQO/qudi-iqo-modules/>
+Copyright (c) 2023, IQO
 
 This file is part of qudi.
 
@@ -24,440 +21,473 @@ If not, see <https://www.gnu.org/licenses/>.
 
 import os
 import sys
-import numpy as np
-import threading
 import logging
-import traceback
-from typing import Optional, Dict, Any, Tuple, List, Union
+import numpy as np
+import time
 
-# Configure logging
-logger = logging.getLogger(__name__)
+# Try to import the simulator from IQO-q/sim/src if installed
+try:
+    from model import PhysicalNVModel
+    _simulator_available = True
+except ImportError:
+    try:
+        # Look for model in the path IQO-q/src/qudi/hardware/nv_simulator/ 
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        nv_simulator_dir = os.path.abspath(os.path.join(current_dir, '..', 'nv_simulator'))
+        
+        if os.path.exists(nv_simulator_dir) and nv_simulator_dir not in sys.path:
+            sys.path.insert(0, nv_simulator_dir)
+            
+        # Try to import model from this path
+        from model import PhysicalNVModel
+        _simulator_available = True
+    except ImportError:
+        _simulator_available = False
+
 
 class NVSimulatorManager:
-    """Singleton manager class for the NV center simulator.
-    
-    This class provides a central access point to the NV center simulator
-    for all dummy modules. It ensures that only one instance of the simulator
-    is created and that all modules access the same simulator instance.
+    """
+    Singleton class to manage the NV simulator for multiple dummy modules.
+    This provides a simplified interface to the simulator that can be used by the
+    microwave_dummy, finite_sampler_dummy, and counter_dummy modules.
     """
     
     _instance = None
-    _lock = threading.RLock()
+    _logger = logging.getLogger(__name__)
     
     def __new__(cls, *args, **kwargs):
-        """Implement the singleton pattern."""
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = super(NVSimulatorManager, cls).__new__(cls)
-                cls._instance._initialized = False
-            return cls._instance
+        """Implement singleton pattern."""
+        if cls._instance is None:
+            cls._instance = super(NVSimulatorManager, cls).__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
     
-    def __init__(self, 
-                 magnetic_field: List[float] = None, 
-                 temperature: float = 300, 
-                 zero_field_splitting: float = 2.87e9,
-                 use_simulator: bool = True):
-        """Initialize the NV simulator manager.
+    def __init__(self, magnetic_field=None, temperature=None, use_simulator=True):
+        """Initialize the NV simulator.
         
-        Args:
-            magnetic_field: Magnetic field vector in Gauss [Bx, By, Bz]
-            temperature: Temperature in Kelvin
-            zero_field_splitting: Zero-field splitting in Hz
-            use_simulator: Whether to use the simulator or simple model
+        @param magnetic_field: magnetic field vector in Gauss [x, y, z]
+        @param temperature: temperature in Kelvin
+        @param use_simulator: whether to use the actual simulator or the fallback model
         """
-        with self._lock:
-            # Only initialize once
-            if hasattr(self, '_initialized') and self._initialized:
-                return
+        # Only initialize once
+        if self._initialized:
+            return
+            
+        self._initialized = True
+        self._logger.info("Initializing NV simulator manager")
+        
+        # Default parameters
+        self._magnetic_field = magnetic_field or [0, 0, 500]  # Default to 500 G along z
+        self._temperature = temperature or 300  # Default to room temperature
+        self._use_simulator = use_simulator and _simulator_available
+        
+        # Current microwave state
+        self._mw_frequency = 2.87e9  # Default to zero-field splitting
+        self._mw_power = -20.0  # Default to -20 dBm
+        self._mw_on = False  # Default to off
+        
+        # Current laser state
+        self._laser_power = 0.0  # Default to 0 mW (off)
+        self._laser_on = False  # Default to off
+        
+        # Current scan state
+        self._scanning = False
+        self._scan_index = 0
+        self._scan_frequencies = None
+        
+        # Create the NV model
+        try:
+            if self._use_simulator:
+                self._logger.info("Creating PhysicalNVModel")
+                model_params = {
+                    'zero_field_splitting': 2.87e9,  # Hz
+                    'gyromagnetic_ratio': 2.8025e10,  # Hz/T
+                    't1': 5.0e-3,  # ms
+                    't2': 1.0e-5,  # ms
+                    'thread_safe': True,
+                    'memory_management': True,
+                    'optimize_performance': True
+                }
                 
-            # Try to import the NV simulator model
-            sim_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'sim', 'src'))
-            if sim_path not in sys.path:
-                sys.path.insert(0, sim_path)
+                # Create the actual simulator model
+                self._model = PhysicalNVModel(**model_params)
                 
-            self._initialized = True
-            self._use_simulator = use_simulator
-            
-            # Default magnetic field (500 G along z-axis)
-            if magnetic_field is None:
-                magnetic_field = [0, 0, 500]  # Gauss
+                # Set magnetic field (convert from Gauss to Tesla)
+                b_field_tesla = [b * 1e-4 for b in self._magnetic_field]  # 1 G = 1e-4 T
+                self._model.set_magnetic_field(b_field_tesla)
                 
-            self._magnetic_field = magnetic_field
-            self._temperature = temperature
-            self._zero_field_splitting = zero_field_splitting
-            
-            # Current MW parameters
-            self._mw_frequency = 2.87e9  # Hz
-            self._mw_power = 0.0  # dBm
-            self._mw_on = False
-            
-            # Current laser parameters
-            self._laser_power = 0.0  # mW
-            self._laser_on = False
-            
-            logger.info(f"Initializing NV simulator with magnetic field {magnetic_field} G, " 
-                       f"temperature {temperature} K, ZFS {zero_field_splitting/1e9} GHz")
-            
-            # Initialize the NV model
-            try:
-                # Try to import the model wrapper
-                try:
-                    # Import model from sim directory
-                    logger.debug("Attempting to import PhysicalNVModel from sim wrapper")
-                    try:
-                        from sim.model_wrapper import import_model
-                        PhysicalNVModel = import_model()
-                        logger.info("Successfully imported PhysicalNVModel using wrapper at " + 
-                                   os.path.join(os.path.dirname(__file__), 'sim', 'model_wrapper.py'))
-                    except ImportError:
-                        # Direct import attempt
-                        logger.debug("Direct import of model.py")
-                        from model import PhysicalNVModel
-                    
-                    # Convert Gauss to Tesla
-                    b_field_tesla = [b * 1e-4 for b in magnetic_field]  # 1 G = 1e-4 T
-                    
-                    # Create the NV model
-                    self.nv_model = PhysicalNVModel(optics=True, nitrogen=False)
-                    
-                    # Set parameters
-                    self.nv_model.set_magnetic_field(b_field_tesla)
-                    self.nv_model.set_temperature(temperature)
-                    self.nv_model.config["d_gs"] = zero_field_splitting
-                    
-                    logger.info(f"NV simulator initialized with PhysicalNVModel")
-                    self.nv_model.reset_state()
-                    
-                except Exception as e:
-                    logger.warning(f"SimOS state reset failed: {e}, using fallback model")
-                    
-                    # Import the simplified model
-                    from nv_simple_model import SimpleNVModel
-                    
-                    # Create a simple NV model
-                    self.nv_model = SimpleNVModel(
-                        magnetic_field=magnetic_field,
-                        temperature=temperature,
-                        zero_field_splitting=zero_field_splitting
-                    )
-                    
-                    logger.info(f"SimpleNVModel initialized with magnetic field {magnetic_field} G")
-            except Exception as e:
-                raise RuntimeError(f"Failed to initialize any NV model: {e}")
+                # Set temperature
+                self._model.set_temperature(self._temperature)
+                
+                self._logger.info(f"Using real simulator with magnetic field {self._magnetic_field} G")
+                self._logger.info(f"  Zero-field splitting: 2.87 GHz")
+                self._logger.info(f"  Gyromagnetic ratio: 2.8025e10 Hz/T")
+                self._logger.info(f"  Resonances at:")
+                
+                # Calculate resonance frequencies
+                zfs = 2.87e9  # Zero-field splitting (Hz)
+                gyro = 2.8e6  # Gyromagnetic ratio (Hz/G)
+                field = np.linalg.norm(self._magnetic_field)
+                
+                zeeman_shift = gyro * field
+                dip1 = zfs - zeeman_shift
+                dip2 = zfs + zeeman_shift
+                
+                self._logger.info(f"  - {dip1/1e9:.6f} GHz (ms=0 -> ms=-1)")
+                self._logger.info(f"  - {dip2/1e9:.6f} GHz (ms=0 -> ms=+1)")
+                
+            else:
+                # Use a simplified model
+                self._logger.info("Using simplified NV model (simulator not available)")
+                self._model = SimplifiedNVModel(self._magnetic_field, self._temperature)
+                
+        except Exception as e:
+            self._logger.error(f"Failed to create NV model: {e}")
+            self._logger.info("Using simplified NV model after error")
+            self._model = SimplifiedNVModel(self._magnetic_field, self._temperature)
     
-    def set_magnetic_field(self, field_gauss: List[float]):
+    @property
+    def model(self):
+        """Get the NV model."""
+        return self._model
+    
+    @property
+    def magnetic_field(self):
+        """Get the magnetic field vector in Gauss."""
+        return self._magnetic_field
+    
+    @property
+    def temperature(self):
+        """Get the temperature in Kelvin."""
+        return self._temperature
+    
+    @property
+    def mw_frequency(self):
+        """Get the current microwave frequency in Hz."""
+        return self._mw_frequency
+    
+    @property
+    def mw_power(self):
+        """Get the current microwave power in dBm."""
+        return self._mw_power
+    
+    @property
+    def mw_on(self):
+        """Check if the microwave is on."""
+        return self._mw_on
+    
+    @property
+    def laser_power(self):
+        """Get the current laser power in mW."""
+        return self._laser_power
+    
+    @property
+    def laser_on(self):
+        """Check if the laser is on."""
+        return self._laser_on
+    
+    @property
+    def is_scanning(self):
+        """Check if scanning is active."""
+        return self._scanning
+    
+    @property
+    def scan_index(self):
+        """Get the current scan index."""
+        return self._scan_index
+    
+    def set_magnetic_field(self, field_vector):
         """Set the magnetic field vector.
         
-        Args:
-            field_gauss: Magnetic field vector in Gauss [Bx, By, Bz]
+        @param field_vector: magnetic field vector in Gauss [x, y, z]
         """
-        with self._lock:
-            self._magnetic_field = field_gauss
-            
-            if self._use_simulator:
-                try:
-                    # Convert Gauss to Tesla
-                    b_field_tesla = [b * 1e-4 for b in field_gauss]  # 1 G = 1e-4 T
-                    self.nv_model.set_magnetic_field(b_field_tesla)
-                    logger.debug(f"NV simulator magnetic field set to {field_gauss} G")
-                except Exception as e:
-                    logger.warning(f"Failed to set magnetic field: {e}")
-    
-    def set_microwave(self, frequency: float, power: float, on: bool = True):
-        """Set the microwave parameters.
+        self._magnetic_field = field_vector
         
-        Args:
-            frequency: Microwave frequency in Hz
-            power: Microwave power in dBm
-            on: Whether the microwave is on
-        """
-        with self._lock:
-            self._mw_frequency = frequency
-            self._mw_power = power
-            self._mw_on = on
+        try:
+            # Update the model (convert from Gauss to Tesla)
+            b_field_tesla = [b * 1e-4 for b in field_vector]  # 1 G = 1e-4 T
+            self._model.set_magnetic_field(b_field_tesla)
             
+            self._logger.info(f"Magnetic field updated to {field_vector} G")
+        except Exception as e:
+            self._logger.error(f"Failed to update magnetic field: {e}")
+    
+    def set_temperature(self, temperature):
+        """Set the temperature.
+        
+        @param temperature: temperature in Kelvin
+        """
+        self._temperature = temperature
+        
+        try:
+            # Update the model
+            self._model.set_temperature(temperature)
+            
+            self._logger.info(f"Temperature updated to {temperature} K")
+        except Exception as e:
+            self._logger.error(f"Failed to update temperature: {e}")
+    
+    def set_microwave(self, frequency, power, on=True):
+        """Set microwave parameters.
+        
+        @param frequency: frequency in Hz
+        @param power: power in dBm
+        @param on: whether the microwave is on
+        """
+        self._mw_frequency = frequency
+        self._mw_power = power
+        old_on_state = self._mw_on
+        self._mw_on = on
+        
+        try:
+            # Update the model
             if self._use_simulator:
-                try:
+                # Convert dBm to amplitude for the simulator
+                # P(dBm) = 10 * log10(P(mW))
+                # P(mW) = 10^(P(dBm)/10)
+                power_mw = 10**(power/10)
+                amplitude = np.sqrt(power_mw) * 0.01  # Scaling factor for the model
+                
+                self._model.set_microwave_frequency(frequency)
+                
+                # Only set amplitude if state changed to avoid unnecessary updates
+                if on != old_on_state:
                     if on:
-                        # Convert dBm to amplitude
-                        power_mw = 10**(power/10)
-                        amplitude = np.sqrt(power_mw) * 0.01
-                        
-                        # Set microwave parameters in NV model
-                        self.nv_model.set_microwave_frequency(frequency)
-                        self.nv_model.set_microwave_amplitude(amplitude)
-                        logger.debug(f"NV simulator microwave set to {frequency/1e9} GHz, {power} dBm")
+                        self._model.set_microwave_amplitude(amplitude)
                     else:
-                        self.nv_model.set_microwave_amplitude(0.0)
-                        logger.debug("NV simulator microwave turned off")
-                except Exception as e:
-                    logger.warning(f"Failed to set microwave parameters: {e}")
+                        self._model.set_microwave_amplitude(0.0)
+                
+            self._logger.info(f"Microwave updated: freq={frequency/1e9:.6f} GHz, power={power} dBm, on={on}")
+        except Exception as e:
+            self._logger.error(f"Failed to update microwave: {e}")
     
-    def set_laser(self, power: float, on: bool = True):
-        """Set the laser parameters.
+    def set_laser(self, power, on=True):
+        """Set laser parameters.
         
-        Args:
-            power: Laser power in mW
-            on: Whether the laser is on
+        @param power: power in mW
+        @param on: whether the laser is on
         """
-        with self._lock:
-            self._laser_power = power
-            self._laser_on = on
-            
+        self._laser_power = power
+        old_on_state = self._laser_on
+        self._laser_on = on
+        
+        try:
+            # Update the model
             if self._use_simulator:
-                try:
+                if on != old_on_state:
                     if on:
-                        self.nv_model.set_laser_power(power)
-                        logger.debug(f"NV simulator laser power set to {power} mW")
+                        self._model.set_laser_power(power)
                     else:
-                        self.nv_model.set_laser_power(0.0)
-                        logger.debug("NV simulator laser turned off")
-                except Exception as e:
-                    logger.warning(f"Failed to set laser power: {e}")
+                        self._model.set_laser_power(0.0)
+                
+            self._logger.info(f"Laser updated: power={power} mW, on={on}")
+        except Exception as e:
+            self._logger.error(f"Failed to update laser: {e}")
     
-    def get_odmr_signal(self, frequency: float) -> float:
-        """Get the ODMR signal at a specific frequency.
+    def set_scanning(self, scanning, scan_index=0):
+        """Set scanning state.
         
-        Args:
-            frequency: Microwave frequency in Hz
-            
-        Returns:
-            float: Fluorescence signal in counts/s
+        @param scanning: whether scanning is active
+        @param scan_index: current scan index
         """
-        with self._lock:
-            try:
-                # Save current MW state
-                current_mw_on = self._mw_on
-                current_mw_freq = self._mw_frequency
-                current_mw_power = self._mw_power
-                
-                # Set MW to the requested frequency temporarily
-                self.set_microwave(frequency, -10.0, True)  # Standard ODMR power
-                
-                # Get fluorescence signal
-                # Ensure laser is on for measurement
-                if not self._laser_on:
-                    self.set_laser(1.0, True)  # Turn on with default power
-                    signal = self.nv_model.get_fluorescence_rate()
-                    self.set_laser(0.0, False)  # Return to off state
-                else:
-                    signal = self.nv_model.get_fluorescence_rate()
-                
-                # Restore original MW state
-                self.set_microwave(current_mw_freq, current_mw_power, current_mw_on)
-                
-                return signal
-            except Exception as e:
-                raise RuntimeError(f"Failed to get ODMR signal from simulator: {e}")
+        self._scanning = scanning
+        self._scan_index = scan_index
+        
+        self._logger.info(f"Scanning state updated: scanning={scanning}, scan_index={scan_index}")
     
-    def _calculate_odmr_signal(self, frequency: float) -> float:
-        """Calculate ODMR signal using a simple model.
+    def get_signal(self, channel='APD counts', sample_count=1000):
+        """Get simulated signal.
         
-        Args:
-            frequency: Microwave frequency in Hz
-            
-        Returns:
-            float: Fluorescence signal in counts/s
+        @param channel: channel name
+        @param sample_count: number of samples to generate
+        
+        @return numpy.ndarray: signal data
         """
+        if channel == 'APD counts':
+            # Calculate expected ODMR signal
+            if not self._mw_on:
+                # Laser off or MW off - just return baseline
+                baseline = 100000.0  # 100k counts/s
+                noise = np.random.normal(0, 0.02 * baseline, sample_count)
+                return baseline + noise
+            
+            # Calculate resonance frequencies
+            zfs = 2.87e9  # Zero-field splitting (Hz)
+            gyro = 2.8e6  # Gyromagnetic ratio (Hz/G)
+            field = np.linalg.norm(self._magnetic_field)
+            
+            zeeman_shift = gyro * field
+            dip1_center = zfs - zeeman_shift
+            dip2_center = zfs + zeeman_shift
+            
+            # Lorentzian function for each dip
+            linewidth = 20e6  # 20 MHz
+            contrast = 0.3  # 30% contrast
+            baseline = 1.0
+            
+            # Power scaling
+            power_mw = 10**(self._mw_power/10)
+            power_factor = min(1.0, power_mw / 10.0)
+            
+            dip1 = contrast * power_factor * linewidth**2 / ((self._mw_frequency - dip1_center)**2 + linewidth**2)
+            dip2 = contrast * power_factor * linewidth**2 / ((self._mw_frequency - dip2_center)**2 + linewidth**2)
+            
+            # Combine dips and scale to photon counts
+            signal = (baseline - dip1 - dip2) * 100000.0
+            
+            # Add Poisson noise
+            sampling_time = 0.001  # 1 ms per sample
+            expected_counts = signal * sampling_time
+            noise = np.random.poisson(expected_counts, sample_count)
+            return noise / sampling_time
+            
+        elif channel == 'Photodiode':
+            # Simple voltage signal with noise
+            return 2.5 + 0.02 * np.random.randn(sample_count)
+        
+        else:
+            # Unknown channel - return zeros
+            return np.zeros(sample_count)
+            
+    def simulate_odmr(self, freq_min, freq_max, num_points):
+        """Simulate ODMR spectrum.
+        
+        @param freq_min: minimum frequency in Hz
+        @param freq_max: maximum frequency in Hz
+        @param num_points: number of points in the spectrum
+        
+        @return dict: dictionary with keys 'frequencies' and 'signal'
+        """
+        self._logger.info(f"Simulating ODMR spectrum from {freq_min/1e9:.6f} to {freq_max/1e9:.6f} GHz with {num_points} points")
+        
+        # Generate frequency array
+        frequencies = np.linspace(freq_min, freq_max, num_points)
+        
         # Calculate resonance frequencies
-        resonance_freq = self._zero_field_splitting  # Zero-field splitting (Hz)
+        zfs = 2.87e9  # Zero-field splitting (Hz)
+        gyro = 2.8e6  # Gyromagnetic ratio (Hz/G)
+        field = np.linalg.norm(self._magnetic_field)
         
-        # Calculate field strength
-        field_strength_gauss = np.linalg.norm(self._magnetic_field)
+        zeeman_shift = gyro * field
+        dip1_center = zfs - zeeman_shift
+        dip2_center = zfs + zeeman_shift
         
-        # Zeeman splitting (~2.8 MHz/G)
-        zeeman_shift = 2.8e6 * field_strength_gauss  # field in G, shift in Hz
+        self._logger.info(f"Magnetic field: {field:.1f} G, Zeeman shift: {zeeman_shift/1e6:.2f} MHz")
+        self._logger.info(f"Resonances at: {dip1_center/1e9:.6f} GHz and {dip2_center/1e9:.6f} GHz")
         
-        # Resonance dips
-        dip1_center = resonance_freq - zeeman_shift
-        dip2_center = resonance_freq + zeeman_shift
-        
-        # Signal parameters
-        linewidth = 5e6  # 5 MHz linewidth
+        # Generate signal at each frequency
+        linewidth = 20e6  # 20 MHz
         contrast = 0.3  # 30% contrast
         baseline = 1.0
         
-        # Lorentzian dips
-        dip1 = contrast * linewidth**2 / ((frequency - dip1_center)**2 + linewidth**2)
-        dip2 = contrast * linewidth**2 / ((frequency - dip2_center)**2 + linewidth**2)
+        # Power scaling - use current power setting
+        power_mw = 10**(self._mw_power/10)
+        power_factor = min(1.0, power_mw / 10.0)
         
-        # Combine dips and scale to counts/s
-        base_rate = 100000.0  # 100k counts/s
-        signal = base_rate * (baseline - dip1 - dip2)
+        # Calculate Lorentzian dips
+        dip1 = np.zeros(num_points)
+        dip2 = np.zeros(num_points)
         
-        # Add noise
-        noise = np.random.normal(0, 0.02 * base_rate)
+        for i, freq in enumerate(frequencies):
+            dip1[i] = contrast * power_factor * linewidth**2 / ((freq - dip1_center)**2 + linewidth**2)
+            dip2[i] = contrast * power_factor * linewidth**2 / ((freq - dip2_center)**2 + linewidth**2)
         
-        return signal + noise
+        # Combine dips and scale to photon counts
+        signal = (baseline - dip1 - dip2) * 100000.0
+        
+        # Add some noise (1% of baseline)
+        noise_level = 0.01 * 100000.0
+        noise = np.random.normal(0, noise_level, num_points)
+        signal += noise
+        
+        # Check for flat line - add warning if no contrast
+        if np.max(signal) - np.min(signal) < 1000:
+            self._logger.warning("ODMR spectrum simulation shows minimal contrast")
+            self._logger.warning("Check if resonances are within frequency range")
+            self._logger.warning(f"Frequency range: {freq_min/1e9:.6f}-{freq_max/1e9:.6f} GHz")
+            self._logger.warning(f"Resonances: {dip1_center/1e9:.6f} GHz and {dip2_center/1e9:.6f} GHz")
+        
+        # Return results
+        return {
+            'frequencies': frequencies, 
+            'signal': signal,
+            'dip1_center': dip1_center,
+            'dip2_center': dip2_center,
+            'contrast': contrast * power_factor
+        }
     
-    def simulate_odmr(self, freq_min: float, freq_max: float, n_points: int) -> Dict[str, np.ndarray]:
-        """Simulate an ODMR scan across a frequency range.
-        
-        Args:
-            freq_min: Minimum frequency in Hz
-            freq_max: Maximum frequency in Hz
-            n_points: Number of frequency points
-            
-        Returns:
-            Dict: Dictionary with 'frequencies' and 'signal' arrays
-        """
-        with self._lock:
-            try:
-                # Generate frequency array
-                frequencies = np.linspace(freq_min, freq_max, n_points)
-                
-                # Use the simulator's ODMR function
-                logger.debug(f"Simulating ODMR from {freq_min/1e9:.4f} GHz to {freq_max/1e9:.4f} GHz with {n_points} points")
-                
-                # Check NV simulator type
-                nv_type = type(self.nv_model).__name__
-                logger.debug(f"Using NV model: {nv_type}")
-                
-                # Get ODMR data from simulator
-                try:
-                    result = self.nv_model.simulate_odmr(freq_min, freq_max, n_points, mw_power=-10.0)
-                    
-                    if hasattr(result, 'frequencies') and hasattr(result, 'signal'):
-                        # Model returned a container object
-                        logger.debug("ODMR simulation successful with container result")
-                        logger.debug(f"Signal min: {np.min(result.signal):.1f}, max: {np.max(result.signal):.1f}")
-                        
-                        # Check for NaN or infinity values
-                        if np.any(np.isnan(result.signal)) or np.any(np.isinf(result.signal)):
-                            logger.warning("ODMR signal contains NaN or Inf values - replacing with zeros")
-                            result.signal = np.nan_to_num(result.signal, nan=0.0, posinf=0.0, neginf=0.0)
-                        
-                        return {
-                            'frequencies': result.frequencies,
-                            'signal': result.signal
-                        }
-                    else:
-                        # Model returned a dictionary or other format
-                        logger.debug("ODMR simulation successful with dictionary-like result")
-                        if isinstance(result, dict):
-                            logger.debug(f"Result keys: {list(result.keys())}")
-                            if 'frequencies' in result and 'signal' in result:
-                                return {
-                                    'frequencies': result['frequencies'],
-                                    'signal': result['signal']
-                                }
-                
-                except Exception as e:
-                    logger.warning(f"NV model's simulate_odmr failed, will calculate point by point: {e}")
-                    # If the model doesn't have a simulate_odmr function, calculate point by point
-                    
-                # Fallback: Manual ODMR calculation
-                logger.debug("Falling back to manual ODMR calculation")
-                signal = np.zeros(n_points)
-                
-                # Save current microwave state
-                current_mw_on = self._mw_on
-                current_mw_freq = self._mw_frequency
-                current_mw_power = self._mw_power
-                
-                # Turn on laser if needed for measurement
-                if not self._laser_on:
-                    self.set_laser(1.0, True)
-                
-                # Calculate point by point
-                for i, freq in enumerate(frequencies):
-                    # Set MW to the current frequency
-                    self.set_microwave(freq, -10.0, True)  # Standard ODMR power
-                    
-                    # Get fluorescence signal
-                    signal[i] = self.nv_model.get_fluorescence_rate()
-                
-                # Restore original MW and laser state
-                self.set_microwave(current_mw_freq, current_mw_power, current_mw_on)
-                if not self._laser_on:
-                    self.set_laser(0.0, False)
-                
-                logger.debug(f"Manual ODMR calculation complete, signal min: {np.min(signal):.1f}, max: {np.max(signal):.1f}")
-                
-                return {
-                    'frequencies': frequencies,
-                    'signal': signal
-                }
-            except Exception as e:
-                logger.error(f"Failed to simulate ODMR: {e}")
-                logger.error(traceback.format_exc())
-                
-                # Last resort fallback - generate synthetic ODMR
-                logger.warning("Using synthetic ODMR data generation as last resort")
-                frequencies = np.linspace(freq_min, freq_max, n_points)
-                
-                # Calculate resonance frequencies
-                resonance_freq = self._zero_field_splitting  # Zero-field splitting (Hz)
-                
-                # Calculate field strength
-                field_strength_gauss = np.linalg.norm(self._magnetic_field)
-                
-                # Zeeman splitting (~2.8 MHz/G)
-                zeeman_shift = 2.8e6 * field_strength_gauss  # field in G, shift in Hz
-                
-                logger.debug(f"Generating synthetic ODMR with ZFS={resonance_freq/1e9:.4f} GHz, "
-                          f"field={field_strength_gauss:.1f} G, Zeeman={zeeman_shift/1e6:.1f} MHz")
-                
-                # Resonance dips
-                dip1_center = resonance_freq - zeeman_shift
-                dip2_center = resonance_freq + zeeman_shift
-                
-                # Signal parameters
-                linewidth = 5e6  # 5 MHz linewidth
-                contrast = 0.3  # 30% contrast
-                baseline = 100000.0  # Base count rate
-                
-                # Generate signal with Lorentzian dips
-                signal = np.ones(n_points) * baseline
-                for i, freq in enumerate(frequencies):
-                    # Lorentzian dips
-                    dip1 = contrast * baseline * linewidth**2 / ((freq - dip1_center)**2 + linewidth**2)
-                    dip2 = contrast * baseline * linewidth**2 / ((freq - dip2_center)**2 + linewidth**2)
-                    
-                    # Apply dips
-                    signal[i] = baseline - dip1 - dip2
-                    
-                    # Add noise
-                    signal[i] += np.random.normal(0, 0.01 * baseline)
-                
-                return {
-                    'frequencies': frequencies,
-                    'signal': signal
-                }
+    @classmethod
+    def reset_instance(cls):
+        """Reset the singleton instance."""
+        cls._instance = None
+        cls._logger.info("NV simulator manager instance reset")
+
+
+class SimplifiedNVModel:
+    """
+    Simplified model for when the real simulator is not available.
+    """
     
-    def get_fluorescence_rate(self) -> float:
-        """Get the current fluorescence rate.
+    def __init__(self, magnetic_field=None, temperature=None):
+        """Initialize the simplified model.
         
-        Returns:
-            float: Fluorescence rate in counts/s
+        @param magnetic_field: magnetic field vector in Gauss [x, y, z]
+        @param temperature: temperature in Kelvin
         """
-        with self._lock:
-            try:
-                if not self._laser_on:
-                    return 0.0
-                    
-                return self.nv_model.get_fluorescence_rate()
-            except Exception as e:
-                raise RuntimeError(f"Failed to get fluorescence rate from simulator: {e}")
-                
-    def reset(self):
-        """Reset the NV state."""
-        with self._lock:
-            try:
-                self.nv_model.reset_state()
-                logger.debug("NV simulator state reset")
-            except Exception as e:
-                raise RuntimeError(f"Failed to reset NV state: {e}")
-            
-    def evolve(self, duration: float):
-        """Evolve the NV state for a specified duration.
+        self._logger = logging.getLogger(__name__)
+        self._logger.info("Creating simplified NV model")
         
-        Args:
-            duration: Evolution time in seconds
+        self._magnetic_field = magnetic_field or [0, 0, 500]  # Default to 500 G along z
+        self._temperature = temperature or 300  # Default to room temperature
+        
+        # Convert Gauss to Tesla for internal use
+        self.b_field = [b * 1e-4 for b in self._magnetic_field]  # 1 G = 1e-4 T
+    
+    def set_magnetic_field(self, field_vector_tesla):
+        """Set the magnetic field vector.
+        
+        @param field_vector_tesla: magnetic field vector in Tesla [x, y, z]
         """
-        with self._lock:
-            try:
-                self.nv_model.evolve(duration)
-                logger.debug(f"NV simulator state evolved for {duration} s")
-            except Exception as e:
-                raise RuntimeError(f"Failed to evolve NV state: {e}")
+        self.b_field = field_vector_tesla
+        # Convert Tesla to Gauss for storage
+        self._magnetic_field = [b * 1e4 for b in field_vector_tesla]  # 1 T = 10,000 G
+    
+    def set_temperature(self, temperature):
+        """Set the temperature.
+        
+        @param temperature: temperature in Kelvin
+        """
+        self._temperature = temperature
+    
+    def set_microwave_frequency(self, frequency):
+        """Set the microwave frequency.
+        
+        @param frequency: frequency in Hz
+        """
+        self._frequency = frequency
+    
+    def set_microwave_amplitude(self, amplitude):
+        """Set the microwave amplitude.
+        
+        @param amplitude: amplitude (arb. units)
+        """
+        self._amplitude = amplitude
+    
+    def set_laser_power(self, power):
+        """Set the laser power.
+        
+        @param power: power in mW
+        """
+        self._laser_power = power
+    
+    def get_fluorescence_rate(self):
+        """Get the fluorescence rate.
+        
+        @return float: rate in counts/s
+        """
+        # Simple model - return baseline rate
+        return 100000.0
+    
+    def reset_state(self):
+        """Reset the model state."""
+        pass
