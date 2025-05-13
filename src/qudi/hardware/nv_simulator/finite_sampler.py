@@ -63,8 +63,7 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
     _channel_units = ConfigOption('channel_units', default={'APD counts': 'c/s', 'Photodiode': 'V'}, missing='warn')
     
     # Connectors
-    from qudi.core.connector import Connector
-    simulator = Connector(interface='QudiFacade')
+    simulator = Connector(interface='MicrowaveInterface')
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -389,10 +388,15 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
             # Generate simulated fluorescence for ODMR
             # For simplicity, we use a Lorentzian dip for the resonance
             resonance_freq = 2.87e9  # Zero-field splitting (Hz)
-            field_strength = np.linalg.norm(self._qudi_facade.nv_model.magnetic_field)
+            # Access b_field attribute from model (in Tesla)
+            b_field = self._qudi_facade.nv_model.b_field
+            
+            # Convert Tesla to Gauss (1 T = 10,000 G)
+            field_strength_gauss = np.linalg.norm(b_field) * 10000.0
             
             # Zeeman splitting (~2.8 MHz/G)
-            zeeman_shift = 2.8e6 * field_strength / 10.0  # field in G, shift in Hz
+            zeeman_shift = 2.8e6 * field_strength_gauss  # field in G, shift in Hz
+            self.log.info(f"Magnetic field: {b_field} T, Field strength: {field_strength_gauss} G, Zeeman shift: {zeeman_shift/1e6} MHz")
             
             # Create two dips for the ms=±1 states
             dip1_center = resonance_freq - zeeman_shift
