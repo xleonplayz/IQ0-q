@@ -30,14 +30,17 @@ from qudi.core.configoption import ConfigOption
 from qudi.core.module import Base
 from qudi.util.mutex import RecursiveMutex
 from qudi.hardware.nv_simulator.model import PhysicalNVModel
+from qudi.hardware.nv_simulator.interfaces import SimulatorInterface
 
-class SimulatorManager(Base):
+class SimulatorManager(Base, SimulatorInterface):
     """
     Central manager for NV center simulator integration with Qudi dummy modules.
     
     This class implements a singleton pattern to ensure a single simulator instance
     is shared across all dummy hardware modules. It provides a simplified access layer
     to the underlying NV simulator functionality with robust error handling.
+    
+    Implements the SimulatorInterface for compatibility with dummy hardware modules.
     """
     
     # Config options

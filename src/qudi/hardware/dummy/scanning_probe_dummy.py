@@ -26,6 +26,7 @@ import numpy as np
 from PySide2 import QtCore
 from fysom import FysomError
 from qudi.core.configoption import ConfigOption
+from qudi.core.connector import Connector
 from qudi.util.mutex import RecursiveMutex
 from qudi.util.constraints import ScalarConstraint
 from qudi.interface.scanning_probe_interface import (
@@ -331,6 +332,8 @@ class ScanningProbeDummyBare(ScanningProbeInterface):
 
     scanning_probe_dummy:
         module.Class: 'dummy.scanning_probe_dummy.ScanningProbeDummy'
+        connect:
+            simulator: 'nv_simulator'
         options:
             position_ranges:
                 x: [0, 200e-6]
@@ -360,6 +363,9 @@ class ScanningProbeDummyBare(ScanningProbeInterface):
             # image_generation_max_calculations: 100e6 # optional
             # image_generation_chunk_size: 1000 # optional
     """
+    
+    # Connectors
+    simulator = Connector(interface='SimulatorInterface', optional=True)
 
     _threaded = True
 
@@ -474,15 +480,18 @@ class ScanningProbeDummyBare(ScanningProbeInterface):
             indices_to_axis_mapper,
         )
 
-        # Try to connect to NV simulator if available
+        # Try to connect to NV simulator if available via connector
         self._simulator_available = False
         self._simulator_manager = None
         try:
-            from qudi.hardware.nv_simulator.simulator_manager import SimulatorManager
-            self._simulator_manager = SimulatorManager()
-            self._simulator_manager.register_module('scanning_probe_dummy')
-            self._simulator_available = True
-            self.log.info("Successfully connected to NV simulator for confocal imaging")
+            if self.simulator.is_connected:
+                self._simulator_manager = self.simulator()
+                self._simulator_manager.register_module('scanning_probe_dummy')
+                self._simulator_available = True
+                self.log.info("Successfully connected to NV simulator for confocal imaging via connector")
+            else:
+                self.log.debug("Simulator connector not connected. Using standard dummy behavior.")
+                self._simulator_available = False
         except Exception as e:
             self.log.debug(f"NV simulator not available for confocal imaging: {str(e)}. "
                          f"Using standard dummy behavior instead.")

@@ -25,6 +25,7 @@ import time
 import random
 
 from qudi.core.configoption import ConfigOption
+from qudi.core.connector import Connector
 from qudi.interface.simple_laser_interface import SimpleLaserInterface
 from qudi.interface.simple_laser_interface import LaserState, ShutterState, ControlMode
 from qudi.util.mutex import RecursiveMutex
@@ -40,9 +41,14 @@ class SimpleLaserDummy(SimpleLaserInterface):
 
     laser_dummy:
         module.Class: 'laser.simple_laser_dummy.SimpleLaserDummy'
+        connect:
+            simulator: 'nv_simulator'
         options:
             use_simulator: True  # Whether to use the NV center simulator
     """
+    
+    # Connectors
+    simulator = Connector(interface='SimulatorInterface', optional=True)
     
     # Config options
     _use_simulator = ConfigOption('use_simulator', True)
@@ -67,11 +73,14 @@ class SimpleLaserDummy(SimpleLaserInterface):
         # Try to connect to the simulator if configured to use it
         if self._use_simulator:
             try:
-                from qudi.hardware.nv_simulator.simulator_manager import SimulatorManager
-                self._simulator_manager = SimulatorManager()
-                self._simulator_manager.register_module('simple_laser_dummy')
-                self._simulator_available = True
-                self.log.info("Successfully connected to NV simulator for laser control")
+                if hasattr(self, 'simulator') and self.simulator.is_connected:
+                    self._simulator_manager = self.simulator()
+                    self._simulator_manager.register_module('simple_laser_dummy')
+                    self._simulator_available = True
+                    self.log.info("Successfully connected to NV simulator via connector")
+                else:
+                    self.log.warning("Simulator connector not connected. Using fallback dummy behavior.")
+                    self._simulator_available = False
             except Exception as e:
                 self.log.warning(f"Could not connect to NV simulator: {str(e)}. "
                                 f"Using fallback dummy behavior instead.")
