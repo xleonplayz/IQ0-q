@@ -24,9 +24,29 @@ import sys
 import json
 import numpy as np
 import time
+import logging
 from pathlib import Path
 
-from qudi.core.module import Base
+# Ensure current_dir is defined for use in import paths
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Try to import the real Qudi Base class first
+try:
+    from qudi.core.module import Base
+except ImportError:
+    # Fall back to using the mock implementation if real Qudi is not available
+    sys.path.insert(0, os.path.abspath(os.path.join(current_dir, '../../../..', 'sim', 'src')))
+    try:
+        from qudi_interface.mock.core import Base
+        print("Using mock Base class from qudi_interface.mock.core")
+    except ImportError:
+        print("Failed to import mock Base class, creating a minimal version")
+        # Create a minimal Base class if even the mock is not available
+        class Base:
+            def __init__(self, qudi_main_weakref=None, name=None, **kwargs):
+                self.log = logging.getLogger(name or self.__class__.__name__)
+                self._module_state = type('ModuleState', (), {'__call__': lambda self: 'idle', 'lock': lambda: None, 'unlock': lambda: None})()
+                self.module_state = self._module_state
 from qudi.core.configoption import ConfigOption
 from qudi.interface.microwave_interface import MicrowaveInterface, MicrowaveConstraints
 from qudi.util.enums import SamplingOutputMode
@@ -447,9 +467,13 @@ class QudiFacade(MicrowaveInterface):
             cls._instance._initialized = False
         return cls._instance
     
-    def __init__(self, **kwargs):
-        """Initialize the QudiFacade."""
-        super().__init__(**kwargs)
+    def __init__(self, qudi_main_weakref=None, name=None, **kwargs):
+        """Initialize the QudiFacade with optional Qudi main reference and name.
+        
+        @param qudi_main_weakref: Optional weakref to Qudi main object
+        @param name: Optional name for this module
+        """
+        super().__init__(qudi_main_weakref=qudi_main_weakref, name=name, **kwargs)
         self._initialized = False
     
     def on_activate(self):

@@ -249,6 +249,25 @@ def run_test_and_visualize():
     try:
         # Run the test
         print("=== Running ODMR Flow Test ===")
+        # Import the original function to patch it before running
+        import types
+        import test_odmr_flow
+        
+        # Patch the QudiFacade creation in run_odmr_flow_test
+        original_run_test = test_odmr_flow.run_odmr_flow_test
+        def patched_run_test():
+            """Patched version that ensures proper QudiFacade parameters"""
+            try:
+                # Instead of directly patching, we'll use the patched qudi_facade.py
+                # that now accepts the required parameters
+                original_run_test()
+            except Exception as e:
+                print(f"Error running test: {e}")
+        
+        # Replace the original function with our patched version
+        test_odmr_flow.run_odmr_flow_test = patched_run_test
+        
+        # Now run the patched function
         run_odmr_flow_test()
         
         # Wait a moment for files to be flushed

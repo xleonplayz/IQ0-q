@@ -1,64 +1,56 @@
-# NV Simulator ODMR Test Suite
+# NV Simulator ODMR Tests
 
-Diese Test-Suite enthält Werkzeuge zum Testen und Debuggen der NV-Simulator-Komponenten, insbesondere für ODMR-Messungen.
+This directory contains test scripts to diagnose communication issues between the microwave device, finite sampler, ODMR logic, and GUI.
 
-## Übersicht der Testskripte
+## Key Files
 
-### 1. `test_mw_sampler_sync.py`
+- `test_mw_sampler_sync.py`: Direct test of communication between microwave device and finite sampler
+- `test_odmr_flow.py`: Test of the full ODMR information flow through the logic layer
+- `run_odmr_test.py`: Runner script that executes tests and visualizes results
 
-Testet die direkte Kommunikation zwischen dem Microwave-Controller und dem Finite Sampler über den Shared-State-Mechanismus, ohne die ODMR-Logik.
+## Common Issues Fixed
 
-**Enthält zwei Tests:**
-- `test_direct_frequency_setting()`: Testet die direkte Frequenzeinstellung und Synchronisation
-- `test_scan_mode_synchronization()`: Testet die Scan-Modus-Frequenzsynchronisation
+1. **Module Import Error**: Updated `QudiFacade` class to accept required Qudi parameters (`qudi_main_weakref` and `name`).
+2. **Base Class Availability**: Added fallback mechanisms for importing the `Base` class when running in a non-Qudi environment.
+3. **Missing Logging**: Ensured logging is properly configured for all test modules.
 
-**Ausführung:**
+## Running the Tests
+
+For basic frequency sweep test:
 ```
 python test_mw_sampler_sync.py
 ```
 
-### 2. `test_odmr_flow.py`
+For complete ODMR flow test:
+```
+python test_odmr_flow.py
+```
 
-Testet den vollständigen Informationsfluss zwischen ODMR-Logik, Microwave-Controller und Finite Sampler.
-
-**Ausführung:**
+For visualization and analysis:
 ```
 python run_odmr_test.py
 ```
 
-### 3. `run_odmr_test.py`
+## Expected Results
 
-Runner-Skript für den ODMR-Flow-Test mit Visualisierung der Ergebnisse.
+With a magnetic field of 500 Gauss along the z-axis, you should observe resonance dips at:
+- 1.47 GHz (2.87 GHz - 1.4 GHz)
+- 4.27 GHz (2.87 GHz + 1.4 GHz)
 
-## Fehlerbehebung
+## Troubleshooting
 
-### Typische Probleme und Lösungsansätze
+If you encounter additional issues:
 
-1. **Keine ODMR-Dips sichtbar**
-   - Überprüfen Sie den konfigurierten Frequenzbereich (sollte 1.4-4.4 GHz für ein 500-Gauss-Feld sein)
-   - Überprüfen Sie, ob die Microwave-Frequenz korrekt im Shared State aktualisiert wird
-   - Überprüfen Sie, ob der Finite Sampler die aktuelle Frequenz aus dem Shared State liest
+1. Check for any import errors in the console output
+2. Look for debugging information in the log files:
+   - `mw_sampler_sync_test.log` (for test_mw_sampler_sync.py)
+   - `odmr_flow_test.log` (for test_odmr_flow.py)
+3. Examine the plots in the `results` directory
+4. Check the shared state in QudiFacade to see if frequency updates are being properly tracked
 
-2. **Falsche Frequenzen**
-   - Überprüfen Sie die Kommunikation zwischen Microwave-Controller und Finite Sampler
-   - Stellen Sie sicher, dass scan_next() korrekt aufgerufen wird und den Scan-Index aktualisiert
+## Results Directory
 
-3. **Keine Kommunikation zwischen Modulen**
-   - Stellen Sie sicher, dass alle Module auf dieselbe QudiFacade-Instanz zugreifen
-   - Überprüfen Sie, ob der Shared-State-Mechanismus in allen relevanten Methoden verwendet wird
-
-## Erwartete ODMR-Resonanzen
-
-Bei einem magnetischen Feld von 500 Gauss entlang der NV-Achse:
-- Erste Resonanz: etwa 1.47 GHz (2.87 GHz - 1.4 GHz)
-- Zweite Resonanz: etwa 4.27 GHz (2.87 GHz + 1.4 GHz)
-
-## Logdateien
-
-Die Tests erzeugen detaillierte Logdateien im Test-Verzeichnis:
-- `odmr_flow_test.log`
-- `mw_sampler_sync_test.log`
-
-## Visualisierungen
-
-Die Testskripte erzeugen automatisch Visualisierungen der Ergebnisse im Unterverzeichnis `results/`.
+Test results and plots are saved in a `results` subdirectory, including:
+- Frequency sweep plots
+- ODMR signal plots
+- Resonance analysis
