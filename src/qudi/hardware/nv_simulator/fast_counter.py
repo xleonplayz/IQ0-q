@@ -24,6 +24,7 @@ import numpy as np
 import os
 import sys
 from qudi.core.configoption import ConfigOption
+from qudi.core.connector import Connector
 from qudi.interface.fast_counter_interface import FastCounterInterface
 from qudi.util.mutex import Mutex
 
@@ -52,8 +53,13 @@ class NVSimFastCounter(FastCounterInterface):
             time_jitter: 0.5e-9  # Timing jitter in seconds
             t1: 5.5e-6           # T1 relaxation time in seconds
             t2: 2.0e-6           # T2 coherence time in seconds
+        connect:
+            simulator: nv_simulator
     """
 
+    # Connectors
+    simulator = Connector(interface='MicrowaveInterface')
+    
     # Config options
     _gated = ConfigOption('gated', False, missing='warn')
     _photon_rate = ConfigOption('photon_rate', 100000, missing='warn')  # counts per second
@@ -76,8 +82,8 @@ class NVSimFastCounter(FastCounterInterface):
 
     def on_activate(self):
         """Initialisation performed during activation of the module."""
-        # Initialize the simulator facade
-        self._qudi_facade = QudiFacade()
+        # Get the QudiFacade instance from the simulator connector
+        self._qudi_facade = self.simulator()
         
         # Set status to idle
         self._statusvar = 0
