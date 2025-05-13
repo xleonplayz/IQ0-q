@@ -378,13 +378,23 @@ class NVSimMicrowaveDevice(MicrowaveInterface):
                     self._qudi_facade.set_scanning_status(False)
                     return False
                 next_freq = start_freq + (stop_freq - start_freq) * (self._current_scan_index / (num_steps - 1))
+            
+            # Log the exact frequency we're going to use
+            self.log.info(f"[SCAN DEBUG] Moving to frequency index {self._current_scan_index}")
+            self.log.info(f"[SCAN DEBUG] Setting frequency to {next_freq/1e9:.6f} GHz")
                 
             # Apply the frequency to the simulator
-            self.log.info(f"Scanning to next frequency: {next_freq/1e9:.6f} GHz (index {self._current_scan_index})")
             self._qudi_facade.microwave_controller.set_frequency(next_freq)
             
             # Update shared state with current scan position
             self._qudi_facade.set_scanning_status(True, scan_index=self._current_scan_index)
+            
+            # Verify the frequency was updated correctly in shared state
+            current_freq = self._qudi_facade.get_current_frequency()
+            if abs(current_freq - next_freq) > 1:  # Check with small tolerance
+                self.log.error(f"[SCAN DEBUG] Frequency mismatch! Set: {next_freq/1e9:.6f} GHz, Got: {current_freq/1e9:.6f} GHz")
+            else:
+                self.log.info(f"[SCAN DEBUG] Frequency verified: {current_freq/1e9:.6f} GHz")
             
             return True
 

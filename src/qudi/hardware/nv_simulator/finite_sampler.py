@@ -401,13 +401,16 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
             current_freq = self._qudi_facade.get_current_frequency()
             current_power = self._qudi_facade.get_current_power()
             is_mw_on = self._qudi_facade.is_microwave_on()
+            is_scanning = self._qudi_facade.is_scanning()
+            scan_index = self._qudi_facade.get_current_scan_index()
             
             # Add extensive debug logging
-            self.log.info(f"ODMR sampling at frequency: {current_freq/1e9:.6f} GHz, power: {current_power} dBm, MW on: {is_mw_on}")
+            self.log.info(f"[SAMPLE DEBUG] ODMR sampling at frequency: {current_freq/1e9:.6f} GHz, power: {current_power} dBm")
+            self.log.info(f"[SAMPLE DEBUG] MW on: {is_mw_on}, Scanning: {is_scanning}, Scan index: {scan_index}")
             
             # If microwave is off, return baseline signal with noise
             if not is_mw_on:
-                self.log.warning("Microwave is off, returning baseline signal only")
+                self.log.warning("[SAMPLE DEBUG] Microwave is off, returning baseline signal only")
                 baseline = 100000.0  # 100k counts/s
                 result = {}
                 
@@ -433,13 +436,14 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
             zeeman_shift = 2.8e6 * field_strength_gauss  # field in G, shift in Hz
             
             # Log the current frequency and computed Zeeman shift for debugging
-            self.log.info(f"Current MW frequency: {current_freq/1e9} GHz")
-            self.log.info(f"Magnetic field: {b_field} T, Field strength: {field_strength_gauss} G, Zeeman shift: {zeeman_shift/1e6} MHz")
-            self.log.info(f"Resonances at: {(resonance_freq-zeeman_shift)/1e9} GHz and {(resonance_freq+zeeman_shift)/1e9} GHz")
+            self.log.info(f"[SAMPLE DEBUG] Current MW frequency: {current_freq/1e9:.6f} GHz")
+            self.log.info(f"[SAMPLE DEBUG] Magnetic field: {field_strength_gauss:.2f} G, Zeeman shift: {zeeman_shift/1e6:.2f} MHz")
             
             # Create two dips for the ms=±1 states
             dip1_center = resonance_freq - zeeman_shift  # ms=0 to ms=-1 transition
             dip2_center = resonance_freq + zeeman_shift  # ms=0 to ms=+1 transition
+            
+            self.log.info(f"[SAMPLE DEBUG] Resonances at: {dip1_center/1e9:.6f} GHz and {dip2_center/1e9:.6f} GHz")
             
             linewidth = 20e6  # 20 MHz linewidth (realistic for ODMR in diamond)
             contrast = 0.3  # 30% contrast (typical for NV centers)
@@ -448,7 +452,7 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
             # Compare current frequency to resonances
             close_to_resonance = False
             if abs(current_freq - dip1_center) < 100e6 or abs(current_freq - dip2_center) < 100e6:
-                self.log.info(f"Close to resonance at {current_freq/1e9} GHz")
+                self.log.info(f"[SAMPLE DEBUG] Close to resonance at {current_freq/1e9:.6f} GHz")
                 close_to_resonance = True
             
             # Lorentzian function for each dip
@@ -457,7 +461,7 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
             
             # Calculate and log resonance depths at current frequency
             dip_strength = dip1 + dip2  # Combined dip strength
-            self.log.debug(f"Dip1 value: {dip1}, Dip2 value: {dip2} at freq: {current_freq/1e9} GHz")
+            self.log.info(f"[SAMPLE DEBUG] Dip1 value: {dip1:.4f}, Dip2 value: {dip2:.4f} at freq: {current_freq/1e9:.6f} GHz")
             
             # Power scaling - stronger MW power means deeper dips
             # Convert dBm to mW for power scaling
@@ -479,7 +483,11 @@ class NVSimFiniteSampler(FiniteSamplingInputInterface):
             
             # For debug purposes
             if close_to_resonance:
-                self.log.info(f"Signal at resonance: {np.mean(simulated_signal):.1f} counts/s, contrast: {(scaled_dip1 + scaled_dip2):.3f}")
+                self.log.info(f"[SAMPLE DEBUG] Signal at resonance: {np.mean(simulated_signal):.1f} counts/s, contrast: {(scaled_dip1 + scaled_dip2):.4f}")
+            
+            # Calculate and log the signal contrast percentage
+            contrast_percent = (scaled_dip1 + scaled_dip2) * 100
+            self.log.info(f"[SAMPLE DEBUG] ODMR contrast at {current_freq/1e9:.6f} GHz: {contrast_percent:.2f}%")
             
             # Fill the buffer with the simulated data
             self._data_buffer[0, :] = simulated_signal
