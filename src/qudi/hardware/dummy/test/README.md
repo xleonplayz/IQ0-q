@@ -7,7 +7,9 @@ This directory contains test scripts to diagnose communication issues between th
 - `test_mw_sampler_sync.py`: Direct test of communication between microwave device and finite sampler
 - `test_odmr_flow.py`: Test of the full ODMR information flow through the logic layer
 - `run_odmr_test.py`: Runner script that executes tests and visualizes results
-- `test_runner.py`: **NEW** Unified test runner that works with or without Qudi installed
+- `test_runner.py`: Unified test runner that works with or without Qudi installed
+- `test_shared_state.py`: **NEW** Tests specifically focused on the shared state mechanism
+- `test_frequency_chain.py`: **NEW** Tests focused on the frequency update chain from ODMR to microwave to sampler
 
 ## Common Issues Fixed
 
@@ -66,6 +68,12 @@ python test_odmr_flow.py
 
 # Visualization and analysis
 python run_odmr_test.py
+
+# NEW: Shared state mechanism tests
+python test_shared_state.py
+
+# NEW: Frequency chain tests
+python test_frequency_chain.py
 ```
 
 ## Expected Results

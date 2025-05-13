@@ -170,6 +170,23 @@ def run_test(test_name):
             run_odmr_test.run_test_and_visualize()
             logger.info("ODMR test and visualization completed successfully")
             return True
+        elif test_name == 'shared_state':
+            import test_shared_state
+            # Individual tests have their own singleton reset
+            test_shared_state.test_direct_shared_state_update()
+            test_shared_state.test_microwave_controller_update()
+            test_shared_state.test_scan_frequency_update()
+            test_shared_state.test_microwave_sampler_coordination()
+            logger.info("Shared state tests completed successfully")
+            return True
+        elif test_name == 'frequency_chain':
+            import test_frequency_chain
+            # Individual tests have their own singleton reset
+            test_frequency_chain.test_direct_scan_next()
+            test_frequency_chain.test_scan_next_implementation()
+            test_frequency_chain.test_odmr_logic_scan()
+            logger.info("Frequency chain tests completed successfully")
+            return True
         else:
             logger.error(f"Unknown test: {test_name}")
             return False
@@ -181,7 +198,7 @@ def run_test(test_name):
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description='NV Simulator Test Runner')
-    parser.add_argument('tests', nargs='*', help='Tests to run (mw_sampler_sync, odmr_flow, run_odmr_test, or all)')
+    parser.add_argument('tests', nargs='*', help='Tests to run (all, mw_sampler_sync, odmr_flow, run_odmr_test, shared_state, frequency_chain)')
     args = parser.parse_args()
     
     # Default to all tests if none specified
@@ -196,7 +213,7 @@ def main():
     
     # Run specified tests
     if 'all' in args.tests:
-        tests = ['mw_sampler_sync', 'odmr_flow', 'run_odmr_test']
+        tests = ['mw_sampler_sync', 'odmr_flow', 'run_odmr_test', 'shared_state', 'frequency_chain']
     else:
         tests = args.tests
     
