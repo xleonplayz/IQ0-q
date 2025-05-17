@@ -1,0 +1,109 @@
+{
+  "system": {
+    "method": "qutip",
+    "optics": true,
+    "nitrogen": true
+  },
+  
+  "physical_parameters": {
+    "zero_field_splitting": 2.87e9,
+    "gyromagnetic_ratio": 2.8025e10,
+    "transverse_strain": 0.0,
+    "t1": 5.0e-3,
+    "t2": 1.5e-6,
+    "temperature": 298.0
+  },
+  
+  "optical_properties": {
+    "zero_phonon_line": 637e-9,
+    "fluorescence_contrast": 0.3,
+    "base_rate": 100000.0,
+    "laser_saturation_power": 0.5,
+    "detection_efficiency": 0.05
+  },
+  
+  "environment": {
+    "magnetic_field": [0.0, 0.0, 0.0],
+    "c13_concentration": 0.011,
+    "background_fluorescence": 1000
+  },
+  
+  "hyperfine": {
+    "nitrogen": {
+      "A_parallel": -2.16e6,
+      "A_perpendicular": -2.7e6
+    },
+    "carbon13": [
+      {
+        "position": [0, 0, 1],
+        "coupling": 12.0e3
+      },
+      {
+        "position": [1, 1, 0],
+        "coupling": 8.2e3
+      }
+    ]
+  },
+  
+  "experimental": {
+    "microwave": {
+      "power_to_rabi_factor": 1.0e5,
+      "frequency_precision": 1000.0,
+      "amplitude_noise": 0.01,
+      "pulse_rise_time": 5.0e-9
+    },
+    "laser": {
+      "power_precision": 0.05,
+      "pulse_rise_time": 2.0e-8
+    },
+    "timing": {
+      "jitter": 1.0e-9,
+      "minimum_step": 1.0e-9
+    },
+    "readout": {
+      "integration_time": 300e-9,
+      "dead_time": 1.0e-7
+    }
+  },
+  
+  "pulse_shapes": {
+    "mw_pi": {
+      "shape": "gaussian",
+      "shape_params": {
+        "sigma": 2.0e-8
+      }
+    },
+    "mw_pi2": {
+      "shape": "gaussian",
+      "shape_params": {
+        "sigma": 2.0e-8
+      }
+    },
+    "laser_init": {
+      "shape": "trapezoidal",
+      "shape_params": {
+        "rise_time": 1.0e-7
+      }
+    },
+    "laser_readout": {
+      "shape": "rectangular"
+    }
+  },
+  
+  "digital_twin_calibration": {
+    "date": "2025-05-17",
+    "device_id": "NV-001",
+    "fitted_parameters": [
+      {
+        "name": "t2",
+        "reference_experiment": "ramsey",
+        "reference_data": "calibration/sample_ramsey.csv"
+      },
+      {
+        "name": "zero_field_splitting",
+        "reference_experiment": "odmr",
+        "reference_data": "calibration/sample_odmr.csv"
+      }
+    ]
+  }
+}
